@@ -135,3 +135,38 @@ def test_export_and_events_stream(client):
     assert "event: agent_event" in text and text.rstrip().endswith('{"status": "COMPLETE"}')
     assert client.get("/api/audits/nope").status_code == 404
     assert client.post("/api/audits", json={**FIXTURE, "standard_profile": "TITLE_24"}).status_code == 400
+
+
+def test_markups_become_counts_and_evidence(client, monkeypatch):
+    from app.models import Evidence, Measurement
+
+    async def fake_aerial(client_, property_id, lat, lon):
+        return Evidence(id="ev_test_aerial", property_id=property_id, provider="USGS NAIP", asset_type="aerial_image")
+    monkeypatch.setattr(usgs, "fetch_aerial", fake_aerial)
+    r = client.post("/api/audits", json={"custom_property": {"name": "Shop", "lat": 34.05, "lon": -118.25},
+                                         "standard_profile": "ADA_2010_SCREEN", "ownership_authorized": True})
+    aid = r.json()["audit_id"]
+    total = {"location_id": "lot_main", "name": "parking_total_spaces", "value": 63, "unit": "spaces",
+             "method": "manual", "reviewed_by": "T"}
+    assert client.post(f"/api/audits/{aid}/measurements", json=total).status_code == 200
+
+    pins = [{"x": 0.2, "y": 0.3, "kind": "accessible"}, {"x": 0.25, "y": 0.3, "kind": "van"}]
+    r = client.post(f"/api/audits/{aid}/markups", json={"pins": pins, "reviewed_by": "T"})
+    assert r.status_code == 200
+    assert len(r.json()["evidence"]["geometry"]["pins"]) == 2
+    f = by_key(r.json()["findings"])
+    assert f[("ADA_2010_208_2", "lot_main")]["status"] == "NUMERIC_SCREEN_FAIL"       # 2 marked, 3 required
+    assert f[("ADA_2010_208_2", "lot_main")]["observed"]["value"] == 2
+    assert f[("ADA_2010_208_2_4", "lot_main")]["status"] == "NUMERIC_SCREEN_PASS"     # 1 van, 1 required
+    assert f[("ADA_2010_208_2", "lot_main")]["confidence"] == "MANUAL_ENTRY"
+
+    # zero marks is a real answer, not "unknown"
+    r = client.post(f"/api/audits/{aid}/markups", json={"pins": [], "reviewed_by": "T"})
+    assert by_key(r.json()["findings"])[("ADA_2010_208_2", "lot_main")]["observed"]["value"] == 0
+    assert client.post(f"/api/audits/{aid}/markups", json={"pins": [{"x": 2, "y": 0, "kind": "van"}], "reviewed_by": "T"}).status_code == 422
+
+
+def test_markups_need_an_image_and_model_must_be_linked(client):
+    aid = run_fixture(client)   # synthetic fixture has a schematic, not an aerial image
+    assert client.post(f"/api/audits/{aid}/markups", json={"pins": [], "reviewed_by": "T"}).status_code == 404
+    assert client.post(f"/api/audits/{aid}/model", json={"model_id": "abcdef123"}).status_code == 400

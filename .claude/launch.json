@@ -4,7 +4,7 @@
     {
       "name": "api",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "--directory", "/Users/sid/Documents/Unstuck/services/api", "uvicorn", "app.main:app", "--port", "8000"],
+      "runtimeArgs": ["run", "--directory", "/Users/sid/Documents/Unstuck/services/api", "uvicorn", "app.main:app", "--port", "8000", "--reload", "--reload-dir", "/Users/sid/Documents/Unstuck/services/api/app"],
       "port": 8000
     },
     {

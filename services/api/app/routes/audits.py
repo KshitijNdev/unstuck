@@ -13,8 +13,8 @@ from .. import store
 from ..models import (MEASUREMENT_NAMES, Audit, CreateAudit, Measurement, MeasurementIn, Property,
                       SourceRef, VerifyIn, now_iso)
 from ..pipeline import runner
-from ..models import Door, Facility
-from ..providers import costar, fixture, sources_status, vexcel
+from ..models import Door, Facility, ModelIn, PinsIn
+from ..providers import costar, fixture, matterport, sources_status, vexcel
 from ..rules import ada2010
 
 router = APIRouter(prefix="/api")
@@ -163,6 +163,60 @@ def add_measurement(audit_id: str, body: MeasurementIn):
         store.save(audit)
         raise HTTPException(400, f"Measurement rejected: {e}")
     return {"measurement": m, "findings": audit.findings}
+
+
+@router.post("/audits/{audit_id}/markups")
+def save_markups(audit_id: str, body: PinsIn):
+    """A person marks accessible stalls on the aerial image. The marks become the observed counts (method: manual)
+    and stay attached to the image as evidence. Zero marks is a valid answer: "I looked and found none"."""
+    audit = _audit(audit_id)
+    if audit.status != "COMPLETE":
+        raise HTTPException(409, "Wait for the audit to finish before marking the image.")
+    ev = next((e for e in audit.evidence if e.asset_type == "aerial_image"), None)
+    if ev is None or not audit.property.facilities:
+        raise HTTPException(404, "This audit has no aerial image to mark.")
+    lot = audit.property.facilities[0].id
+    before = (dict(ev.geometry or {}), list(audit.measurements))
+    ev.geometry = {**(ev.geometry or {}), "pins": [p.model_dump() for p in body.pins],
+                   "pins_by": body.reviewed_by, "pins_at": now_iso()}
+    counts = {"parking_accessible_spaces": len(body.pins),
+              "parking_van_spaces": sum(1 for p in body.pins if p.kind == "van")}
+    for name, value in counts.items():
+        audit.measurements.append(Measurement(
+            id=f"m_{uuid.uuid4().hex[:8]}", audit_id=audit_id, location_id=lot, name=name, value=value, unit="spaces",
+            method="manual", evidence_id=ev.id, reviewed_by=body.reviewed_by,
+            notes=f"Counted by a person from marks on the {ev.provider} image."))
+    try:
+        runner.emit(audit, "OBSERVATION_PROPOSED", "human_reviewer",
+                    f"{body.reviewed_by} marked {counts['parking_accessible_spaces']} accessible stall(s), "
+                    f"{counts['parking_van_spaces']} of them van-accessible, on the {ev.provider} image.", payload=counts)
+        runner.reevaluate(audit)
+    except ValueError as e:
+        audit = _audit(audit_id)
+        ev = next(e2 for e2 in audit.evidence if e2.asset_type == "aerial_image")
+        ev.geometry, audit.measurements = before
+        store.save(audit)
+        raise HTTPException(400, f"Marks rejected: {e}")
+    return {"evidence": ev, "findings": audit.findings}
+
+
+@router.post("/audits/{audit_id}/model")
+async def choose_model(audit_id: str, body: ModelIn):
+    """Switch which linked Matterport scan is shown. Only scans the CoStar crosswalk links to this property are allowed."""
+    audit = _audit(audit_id)
+    record = next((e for e in audit.evidence if e.provider == "CoStar"), None)
+    linked = ((record.geometry or {}).get("summary") or {}).get("model_ids", []) if record else []
+    if body.model_id not in linked:
+        raise HTTPException(400, "That scan is not linked to this property in the CoStar crosswalk.")
+    try:
+        async with httpx.AsyncClient() as client:
+            ev, summary = await matterport.fetch_model(client, audit.property_id, body.model_id)
+    except Exception as e:
+        raise HTTPException(502, f"Matterport unavailable ({type(e).__name__})")
+    audit.evidence = [e for e in audit.evidence if e.provider != "Matterport"] + [ev]
+    runner.emit(audit, "FETCH_SUCCESS", "interior_inspector", f"Switched to Matterport scan {body.model_id} ({summary.get('name')}).",
+                tool="matterport.model_api", source_id=f"Matterport:{body.model_id}")
+    return ev
 
 
 @router.post("/findings/{finding_id}/verify")

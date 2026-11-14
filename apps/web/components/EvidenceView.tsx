@@ -1,4 +1,8 @@
-import { evidenceUrl, type Evidence, type Finding } from "@/lib/api";
+"use client";
+
+import { useState } from "react";
+import { ErrorNote } from "@/components/ui";
+import { chooseModel, evidenceUrl, saveMarkups, type Evidence, type Finding, type Pin } from "@/lib/api";
 
 function Provenance({ ev }: { ev: Evidence }) {
   const scale = ev.scale as { native_resolution?: number; units?: string; note?: string } | null;
@@ -52,34 +56,146 @@ function Schematic({ ev, selected }: { ev: Evidence; selected: Finding | null })
   );
 }
 
-export function EvidenceView({ evidence, selected }: { evidence: Evidence[]; selected: Finding | null }) {
+/** Aerial image with a person's marks for accessible stalls. Marks become the observed counts. */
+function AerialMarkup({ ev, auditId, onChanged, marking, setMarking }: {
+  ev: Evidence; auditId: string; onChanged: () => Promise<void>; marking: boolean; setMarking: (v: boolean) => void;
+}) {
+  const saved = ev.geometry?.pins ?? null;
+  const [pins, setPins] = useState<Pin[]>(saved ?? []);
+  const [kind, setKind] = useState<Pin["kind"]>("accessible");
+  const [who, setWho] = useState(ev.geometry?.pins_by ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const shown = marking ? pins : saved ?? [];
+  const vans = shown.filter((p) => p.kind === "van").length;
+
+  function place(e: React.MouseEvent<HTMLDivElement>) {
+    if (!marking) return;
+    const box = e.currentTarget.getBoundingClientRect();
+    setPins([...pins, { x: (e.clientX - box.left) / box.width, y: (e.clientY - box.top) / box.height, kind }]);
+  }
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await saveMarkups(auditId, pins, who);
+      setMarking(false);
+      await onChanged();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-2">
+      <div className={`relative overflow-hidden rounded-xl border border-line ${marking ? "cursor-crosshair" : ""}`} onClick={place}>
+        {/* eslint-disable-next-line @next/next/no-img-element -- remote provider imagery, not optimizable */}
+        <img src={evidenceUrl(ev.view_url!)} className="block aspect-square w-full select-none object-cover" draggable={false}
+          alt={`Aerial image from ${ev.provider} centred on the property, captured ${ev.capture_date ?? "on an unknown date"}. ${shown.length} accessible stall mark(s) placed by a person.`} />
+        {shown.map((p, i) => (
+          <button key={i} type="button" disabled={!marking}
+            onClick={(e) => { e.stopPropagation(); setPins(pins.filter((_, j) => j !== i)); }}
+            style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%` }}
+            aria-label={`Mark ${i + 1}: ${p.kind === "van" ? "van-accessible" : "accessible"} stall${marking ? ". Activate to remove." : ""}`}
+            className={`absolute flex size-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center border-2 border-white text-xs font-bold text-white shadow ${
+              p.kind === "van" ? "rounded-md bg-suspect" : "rounded-full bg-brand"}`}>
+            {p.kind === "van" ? "V" : "A"}
+          </button>
+        ))}
+      </div>
+
+      {!marking && (
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm text-muted">
+            {saved
+              ? `${saved.length} accessible stall(s) marked by ${ev.geometry?.pins_by}, ${vans} of them van-accessible.`
+              : "No one has marked accessible stalls on this image yet."}
+          </p>
+          <button className="btn btn-sm no-print" onClick={() => { setPins(saved ?? []); setMarking(true); }}>
+            {saved ? "Edit marks" : "Mark accessible stalls"}
+          </button>
+        </div>
+      )}
+
+      {marking && (
+        <form onSubmit={save} className="no-print mt-3 space-y-3 rounded-xl bg-paper p-3 text-sm">
+          <p>
+            Click each stall painted with the wheelchair symbol or a striped access aisle. Click a mark to remove it.
+            What you mark is recorded as counted by you, not detected by software.
+          </p>
+          <fieldset className="flex flex-wrap gap-4">
+            <legend className="font-medium">Next mark is a</legend>
+            <label className="flex items-center gap-2">
+              <input type="radio" name="kind" checked={kind === "accessible"} onChange={() => setKind("accessible")} />
+              <span className="inline-flex size-5 items-center justify-center rounded-full bg-brand text-[10px] font-bold text-white">A</span>
+              Accessible stall
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="radio" name="kind" checked={kind === "van"} onChange={() => setKind("van")} />
+              <span className="inline-flex size-5 items-center justify-center rounded-md bg-suspect text-[10px] font-bold text-white">V</span>
+              Van-accessible stall
+            </label>
+          </fieldset>
+          <p className="font-medium" aria-live="polite">
+            {pins.length} accessible stall(s) marked, {pins.filter((p) => p.kind === "van").length} van-accessible.
+            {pins.length === 0 && " Saving with none marked records that you looked and found none."}
+          </p>
+          {error && <ErrorNote message={error} />}
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="font-medium">
+              Your name
+              <input className="field mt-1" required maxLength={80} value={who} onChange={(e) => setWho(e.target.value)} />
+            </label>
+            <button className="btn btn-primary btn-sm" type="submit" disabled={busy}>Save counts and re-run checks</button>
+            <button className="btn btn-sm" type="button" onClick={() => setMarking(false)}>Cancel</button>
+          </div>
+        </form>
+      )}
+    </div>
+  );
+}
+
+export function EvidenceView({ evidence, selected, auditId, onChanged }: {
+  evidence: Evidence[]; selected: Finding | null; auditId: string; onChanged: () => Promise<void>;
+}) {
+  const [marking, setMarking] = useState(false);
+  const [switching, setSwitching] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const site = evidence.find((e) => e.asset_type === "schematic" || e.asset_type === "aerial_image");
   const tour = evidence.find((e) => e.asset_type === "tour");
-  const summary = tour?.geometry?.summary as { name?: string; address?: string; panos?: number; wall_graph_edge_types?: Record<string, number> } | undefined;
+  const record = evidence.find((e) => e.asset_type === "record");
+  const linked = ((record?.geometry?.summary as { model_ids?: string[] } | undefined)?.model_ids) ?? [];
+  const summary = tour?.geometry?.summary as
+    { model_id?: string; name?: string; address?: string; panos?: number; classifications?: string[] } | undefined;
+
+  async function pick(modelId: string) {
+    setSwitching(true);
+    setError(null);
+    try { await chooseModel(auditId, modelId); await onChanged(); }
+    catch (e) { setError((e as Error).message); }
+    finally { setSwitching(false); }
+  }
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
-      <section aria-labelledby="site-h" className="rounded-2xl border border-line bg-card p-4">
+      <section aria-labelledby="site-h" className={`rounded-2xl border border-line bg-card p-4 ${marking ? "lg:col-span-2" : ""}`}>
         <h3 id="site-h" className="font-semibold">From above</h3>
         {!site && <p className="mt-2 text-sm text-muted">No aerial image for this site. Exterior checks rely on what a person records.</p>}
         {site?.asset_type === "schematic" && <div className="mt-2"><Schematic ev={site} selected={selected} /></div>}
         {site?.asset_type === "aerial_image" && site.view_url && (
-          <div className="mt-2">
-            {/* eslint-disable-next-line @next/next/no-img-element -- remote provider imagery, not optimizable */}
-            <img src={evidenceUrl(site.view_url)} className="aspect-square w-full rounded-xl border border-line object-cover"
-              alt={`Aerial image from ${site.provider} centred on the entered coordinates, captured ${site.capture_date ?? "on an unknown date"}.`} />
-            <p className="mt-2 text-sm text-muted">
-              {selected
-                ? `"${selected.location}" has not been located on this image yet. Marking locations on imagery is not built.`
-                : "Select a check to see where it applies."}
-            </p>
-          </div>
+          <AerialMarkup key={`${site.id}-${site.geometry?.pins?.length ?? "none"}`} ev={site} auditId={auditId}
+            onChanged={onChanged} marking={marking} setMarking={setMarking} />
         )}
         {site && <Provenance ev={site} />}
       </section>
 
       <section aria-labelledby="tour-h" className="rounded-2xl border border-line bg-card p-4">
         <h3 id="tour-h" className="font-semibold">Inside</h3>
+        {error && <div className="mt-2"><ErrorNote message={error} /></div>}
         {!tour && (
           <p className="mt-2 text-sm text-muted">
             No authorized 3D model is linked to this property. Door widths need a tape measure on site; nothing is
@@ -89,20 +205,28 @@ export function EvidenceView({ evidence, selected }: { evidence: Evidence[]; sel
         {tour && (
           <>
             {tour.view_url ? (
-              <iframe src={tour.view_url} title={`Matterport 3D tour of ${summary?.name ?? "the property"}`} allow="xr-spatial-tracking"
+              <iframe key={tour.provider_asset_id} src={tour.view_url} allow="xr-spatial-tracking; fullscreen" allowFullScreen
+                title={`Matterport 3D tour of ${summary?.name ?? "the property"}`}
                 className="mt-2 aspect-video w-full rounded-xl border border-line" />
             ) : (
               <p className="mt-2 text-sm text-muted">This model is private, so its tour cannot be embedded.</p>
             )}
             <p className="mt-2 text-sm">
-              {summary?.name} · {summary?.address ?? "address unknown"} · {summary?.panos ?? 0} scan positions
+              <strong>{summary?.name}</strong> · {summary?.address ?? "address unknown"} · {summary?.panos ?? 0} scan positions
+              {summary?.classifications?.length ? ` · Matterport classifies it as ${summary.classifications.join(", ").replaceAll("_", " ")}` : ""}
             </p>
-            {summary?.wall_graph_edge_types && (
-              <p className="mt-1 text-sm text-muted">
-                Wall graph edge types: {Object.entries(summary.wall_graph_edge_types).map(([k, v]) => `${k} (${v})`).join(", ") || "none"}.
-                Not used for any check.
-              </p>
+            {linked.length > 1 && (
+              <label className="no-print mt-2 block text-sm font-medium">
+                CoStar links {linked.length} scans to this property. Showing:
+                <select className="field mt-1" disabled={switching} value={summary?.model_id ?? ""} onChange={(e) => pick(e.target.value)}>
+                  {linked.map((m, i) => <option key={m} value={m}>Scan {i + 1} of {linked.length} ({m})</option>)}
+                </select>
+              </label>
             )}
+            <p className="mt-2 text-sm text-muted">
+              To measure a door: open the tour&apos;s measurement tool, measure the clear opening, then record it on the door
+              check as “Measured by hand in the 3D tour”.
+            </p>
             <Provenance ev={tour} />
           </>
         )}

@@ -210,3 +210,19 @@ class VerifyIn(BaseModel):
     action: Literal["approve", "reject", "needs_field_visit"]
     reviewer: str = Field(min_length=1, max_length=80)
     note: str | None = Field(default=None, max_length=500)
+
+
+class Pin(BaseModel):
+    """A person's mark on the aerial image, in image-relative coordinates (0-1 from top-left)."""
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+    kind: Literal["accessible", "van"]   # a van-accessible space is also an accessible space
+
+
+class PinsIn(BaseModel):
+    pins: list[Pin] = Field(max_length=300)
+    reviewed_by: str = Field(min_length=1, max_length=80)
+
+
+class ModelIn(BaseModel):
+    model_id: str = Field(pattern=r"^[A-Za-z0-9]{6,20}$")

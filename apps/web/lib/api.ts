@@ -19,6 +19,8 @@ export interface SourceStatus {
 
 export interface Region { id: string; label: string; x: number; y: number; w: number; h: number; kind: string }
 
+export interface Pin { x: number; y: number; kind: "accessible" | "van" }
+
 export interface Evidence {
   id: string;
   provider: string;
@@ -27,7 +29,7 @@ export interface Evidence {
   capture_date: string | null;
   retrieved_at: string | null;
   view_url: string | null;
-  geometry: { regions?: Region[]; summary?: Record<string, unknown> } | null;
+  geometry: { regions?: Region[]; summary?: Record<string, unknown>; pins?: Pin[]; pins_by?: string } | null;
   scale: Record<string, unknown> | null;
   rights: string | null;
   quality: string | null;
@@ -136,6 +138,10 @@ export const createAudit = (body: unknown) =>
   request<{ audit_id: string }>("/api/audits", { method: "POST", body: JSON.stringify(body) });
 export const addMeasurement = (id: string, body: unknown) =>
   request<unknown>(`/api/audits/${id}/measurements`, { method: "POST", body: JSON.stringify(body) });
+export const saveMarkups = (id: string, pins: Pin[], reviewed_by: string) =>
+  request<unknown>(`/api/audits/${id}/markups`, { method: "POST", body: JSON.stringify({ pins, reviewed_by }) });
+export const chooseModel = (id: string, model_id: string) =>
+  request<unknown>(`/api/audits/${id}/model`, { method: "POST", body: JSON.stringify({ model_id }) });
 export const verifyFinding = (findingId: string, body: unknown) =>
   request<Finding>(`/api/findings/${encodeURIComponent(findingId)}/verify`, { method: "POST", body: JSON.stringify(body) });
 

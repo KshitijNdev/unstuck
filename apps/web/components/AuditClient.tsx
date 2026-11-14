@@ -116,7 +116,7 @@ export function AuditClient({ id }: { id: string }) {
             <p className="mb-3 text-sm text-muted">
               {selected ? `Showing: ${selected.title} at ${selected.location}.` : "Choose “Show evidence” on a check below."}
             </p>
-            <EvidenceView evidence={audit.evidence} selected={selected} />
+            <EvidenceView evidence={audit.evidence} selected={selected} auditId={id} onChanged={refresh} />
           </section>
 
           <section aria-labelledby="find-h">
