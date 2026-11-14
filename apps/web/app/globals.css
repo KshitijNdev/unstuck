@@ -1,0 +1,83 @@
+@import "tailwindcss";
+
+:root {
+  --paper: #fbf7f0;
+  --card: #ffffff;
+  --ink: #1b1f2a;
+  --muted: #5a6172;
+  --line: #e4dccd;
+  --brand: #0e6b5c;
+  --brand-ink: #ffffff;
+  --sun: #f6c445;
+  --fail: #a4271b;
+  --fail-bg: #fdecea;
+  --pass: #14633d;
+  --pass-bg: #e6f4ec;
+  --review: #8a4b06;
+  --review-bg: #fdf1dc;
+  --suspect: #3b4a8f;
+  --suspect-bg: #e9ecfb;
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-card: var(--card);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-brand: var(--brand);
+  --color-sun: var(--sun);
+  --color-fail: var(--fail);
+  --color-fail-bg: var(--fail-bg);
+  --color-pass: var(--pass);
+  --color-pass-bg: var(--pass-bg);
+  --color-review: var(--review);
+  --color-review-bg: var(--review-bg);
+  --color-suspect: var(--suspect);
+  --color-suspect-bg: var(--suspect-bg);
+  --font-sans: var(--font-body);
+  --font-display: var(--font-display);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body), system-ui, sans-serif;
+}
+
+:focus-visible {
+  outline: 3px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.field {
+  width: 100%;
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  padding: 0.55rem 0.7rem;
+  background: var(--card);
+  font: inherit;
+}
+.field:hover { border-color: #b9ad97; }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
+  border-radius: 999px; padding: 0.6rem 1.15rem; font-weight: 600;
+  border: 1.5px solid var(--ink); background: var(--card); color: var(--ink); cursor: pointer;
+}
+.btn:hover { background: #f3ecdf; }
+.btn-primary { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); }
+.btn-primary:hover { background: #0a5549; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-sm { padding: 0.35rem 0.8rem; font-size: 0.875rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+
+@media print {
+  .no-print { display: none !important; }
+  body { background: #fff; }
+}
