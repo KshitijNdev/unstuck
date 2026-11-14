@@ -114,7 +114,23 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
-export const getSources = () => request<{ sources: SourceStatus[]; engine_note: string }>("/api/sources/status");
+export interface CostarHit {
+  id: number;
+  name: string;
+  address: string | null;
+  city: string | null;
+  type: string;
+  year_built: number | null;
+  surface_spaces: number | null;
+  model_ids: string[];
+}
+
+export const searchProperties = (q: string) =>
+  request<{ properties: CostarHit[]; available: boolean; rights: string }>(
+    `/api/properties/search?limit=12&q=${encodeURIComponent(q)}`,
+  );
+
+export const getSources =() => request<{ sources: SourceStatus[]; engine_note: string }>("/api/sources/status");
 export const getAudit = (id: string) => request<Audit>(`/api/audits/${id}`);
 export const createAudit = (body: unknown) =>
   request<{ audit_id: string }>("/api/audits", { method: "POST", body: JSON.stringify(body) });
@@ -139,7 +155,8 @@ export const CONFIDENCE: Record<string, string> = {
   DEMO_SYNTHETIC: "Synthetic demo value",
   FIELD_MEASURED: "Field measured",
   MANUAL_ENTRY: "Manually entered",
-  MODEL_METRIC: "From 3D model",
+  MODEL_METRIC: "Measured in 3D tour",
+  PROPERTY_RECORD: "From property record",
   IMAGE_ESTIMATE_UNVERIFIED: "Unverified image estimate",
   VISUAL_UNVERIFIED: "Visual only, unverified",
   NO_MEASUREMENT: "No measurement",

@@ -82,7 +82,7 @@ export function FindingCard({ finding: f, auditId, selected, onSelect, onChanged
       </dl>
 
       <p className="mt-3 text-sm">{f.rationale}</p>
-      {f.required?.condition && <p className="mt-1 text-sm text-muted">Applies because: {f.required.condition}.</p>}
+      {f.required?.condition && <p className="mt-1 text-sm text-muted">{f.observed ? "Applies because" : "Requirement note"}: {f.required.condition}.</p>}
       {f.borderline && <p className="mt-1 text-sm font-medium text-review">Close to the threshold: re-measure before acting.</p>}
       <p className="mt-2 text-sm"><span className="font-semibold">Next step: </span>{f.followup}</p>
       <p className="mt-1 text-xs text-muted">{f.citation} · screening result, not a compliance determination.</p>
@@ -119,7 +119,8 @@ export function FindingCard({ finding: f, auditId, selected, onSelect, onChanged
             How was it measured?
             <select className="field mt-1" value={method} onChange={(e) => setMethod(e.target.value)}>
               <option value="field">On site (tape measure / counted in person)</option>
-              <option value="manual">Entered from another record</option>
+              <option value="manual">{isParking ? "Counted by a person on the aerial image" : "Entered from another record"}</option>
+              {isDoor && <option value="model_metric">Measured by hand in the 3D tour</option>}
             </select>
           </label>
           <label className="text-sm font-medium">

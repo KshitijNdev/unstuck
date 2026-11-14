@@ -13,7 +13,8 @@ from .. import store
 from ..models import (MEASUREMENT_NAMES, Audit, CreateAudit, Measurement, MeasurementIn, Property,
                       SourceRef, VerifyIn, now_iso)
 from ..pipeline import runner
-from ..providers import fixture, sources_status, vexcel
+from ..models import Door, Facility
+from ..providers import costar, fixture, sources_status, vexcel
 from ..rules import ada2010
 
 router = APIRouter(prefix="/api")
@@ -43,6 +44,13 @@ def demo_properties():
     return {"properties": [fixture.demo_listing()]}
 
 
+@router.get("/properties/search")
+def search_properties(q: str = "", city: str | None = None, limit: int = 25):
+    """Non-residential CoStar properties that have a Matterport scan. Hackathon data, hackathon use only."""
+    return {"properties": costar.search(q, city, min(max(limit, 1), 50)), "rights": costar.RIGHTS,
+            "available": costar.status().state != "unavailable"}
+
+
 @router.post("/audits", status_code=202)
 def create_audit(body: CreateAudit, background: BackgroundTasks):
     if body.standard_profile != ada2010.STANDARD_PROFILE:
@@ -54,6 +62,25 @@ def create_audit(body: CreateAudit, background: BackgroundTasks):
             raise HTTPException(400, "This is a synthetic fixture. Set allow_synthetic_fixture to run it.")
         prop, *_ = fixture.load(audit_id)
         synthetic = True
+    elif body.costar_property_id is not None:
+        if not body.ownership_authorized:
+            raise HTTPException(403, "Confirm you are authorized to screen this property.")
+        rec = costar.get(body.costar_property_id)
+        if rec is None:
+            raise HTTPException(404, "No such property in the CoStar extract (or the extract is not loaded).")
+        if body.matterport_model_id and body.matterport_model_id not in rec["model_ids"]:
+            raise HTTPException(400, "That Matterport model is not linked to this property in the CoStar crosswalk.")
+        prop = Property(
+            id=f"costar_{rec['id']}", name=rec["name"],
+            address=", ".join(x for x in (rec["address"], rec["city"], rec["state"]) if x) or None,
+            city=rec["city"], state=rec["state"], lat=rec["lat"], lon=rec["lon"], type=rec["type"],
+            year_built=rec["year_built"],
+            facilities=[Facility(id="lot_main", label="Surface parking (property-wide, lots not yet separated)")],
+            doors=[Door(id="door_entrance", label="Main public entrance", priority=1)],
+            ownership_authorized=True,
+            source_refs=[SourceRef(provider="CoStar", source_record_id=str(rec["id"]), retrieved_at=now_iso(), rights=costar.RIGHTS)])
+        synthetic = False
+        model_id = body.matterport_model_id or (rec["model_ids"][0] if rec["model_ids"] else None)
     elif body.custom_property is not None:
         if not body.ownership_authorized:
             raise HTTPException(403, "Confirm you own this property or are authorized to audit it.")

@@ -10,7 +10,7 @@ FindingStatus = Literal[
     "NUMERIC_SCREEN_FAIL", "NUMERIC_SCREEN_PASS", "SUSPECTED_VISUAL_BARRIER",
     "FIELD_VERIFICATION_REQUIRED", "INSUFFICIENT_DATA", "OUT_OF_SCOPE",
 ]
-MeasurementMethod = Literal["field", "manual", "model_metric", "image_estimate", "synthetic_demo_only"]
+MeasurementMethod = Literal["field", "manual", "model_metric", "record", "image_estimate", "synthetic_demo_only"]
 ReviewStatus = Literal["NOT_REVIEWED", "APPROVED", "REJECTED", "NEEDS_FIELD_VISIT"]
 SourceState = Literal["connected", "limited", "unavailable"]
 EventType = Literal[
@@ -186,6 +186,8 @@ class CustomProperty(BaseModel):
 
 class CreateAudit(BaseModel):
     property_id: str | None = None
+    costar_property_id: int | None = None
+    matterport_model_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9]{6,20}$")
     custom_property: CustomProperty | None = None
     mode: str = "single_property"
     standard_profile: str = "ADA_2010_SCREEN"
@@ -198,7 +200,8 @@ class MeasurementIn(BaseModel):
     name: str
     value: float = Field(ge=0)
     unit: str
-    method: Literal["field", "manual"]   # people can only enter human measurements
+    # People enter human measurements: on site, from another record, or measured by hand in the 3D tour.
+    method: Literal["field", "manual", "model_metric"]
     reviewed_by: str = Field(min_length=1, max_length=80)
     notes: str | None = Field(default=None, max_length=500)
 

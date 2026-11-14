@@ -1,6 +1,6 @@
 """Matterport Model API adapter (GraphQL, HTTP basic auth: API key as user, token as password).
 
-Queries taken from the HackPrinceton 2026 quickstart. NOT YET VERIFIED with a real key here.
+Queries taken from the HackPrinceton 2026 quickstart; verified with a hackathon key on 14 Nov 2026.
 
 What this can and cannot support:
   * Room dimensions and the wall graph are context. They are NOT door clear widths.
@@ -41,7 +41,7 @@ def status() -> SourceStatus:
         return SourceStatus(provider="Matterport", layer="interior", state="unavailable", is_sponsor_source=True,
                             detail="No MATTERPORT_API_KEY / MATTERPORT_API_TOKEN set. Get them with /costar-keys in the track Discord.")
     return SourceStatus(provider="Matterport", layer="interior", state="limited", is_sponsor_source=True,
-                        detail="Key present. Model basics and rooms wired; door clear width is not available from this data.",
+                        detail="Model identity, rooms and 3D tour working. Limited: the wall graph has no door openings, so door clear width is not available.",
                         features=["model identity", "rooms and dimensions", "wall graph", "3D tour embed"])
 
 

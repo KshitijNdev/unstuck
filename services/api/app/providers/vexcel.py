@@ -2,7 +2,7 @@
 
 Request shape taken from the hackathon Matterport quickstart, section 7:
 POST https://api.vexcelgroup.com/v2/ortho/extract with the key in the X-API-KEY header.
-NOT YET VERIFIED with a real key from this codebase.
+Verified with a hackathon key on 14 Nov 2026.
 
 The image is fetched server-side and proxied; the key never reaches the browser.
 """
@@ -28,8 +28,8 @@ def status() -> SourceStatus:
     if not _key():
         return SourceStatus(provider="Vexcel", layer="aerial", state="unavailable", is_sponsor_source=True,
                             detail="No VEXCEL_API_KEY set. Get one with /costar-keys in the track Discord.")
-    return SourceStatus(provider="Vexcel", layer="aerial", state="limited", is_sponsor_source=True,
-                        detail="Key present. Ortho extract wired; not yet verified against a live response. Houston/LA only.",
+    return SourceStatus(provider="Vexcel", layer="aerial", state="connected", is_sponsor_source=True,
+                        detail="Orthophoto extract working. Houston and Los Angeles only. Capture date is not retrieved yet.",
                         features=["orthophoto about 7.5 cm/pixel"])
 
 

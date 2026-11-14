@@ -16,7 +16,7 @@ from typing import Any
 import httpx
 
 from .. import store
-from ..models import AgentEvent, Audit, Door, Facility, now_iso
+from ..models import AgentEvent, Audit, Door, Evidence, Facility, Measurement, now_iso
 from ..providers import costar, fixture, matterport, sources_status, usgs, vexcel
 from .evaluate import evaluate
 
@@ -117,12 +117,32 @@ async def _run(audit: Audit, matterport_model_id: str | None) -> None:
             await _step(audit)
         else:
             # property record
-            if costar.status().state == "unavailable":
+            ref = next((r for r in prop.source_refs if r.provider == "CoStar"), None)
+            rec = costar.get(int(ref.source_record_id)) if ref else None
+            if rec:
+                unknown = [k for k in ("type", "year_built", "surface_spaces") if rec.get(k) is None]
+                emit(audit, "FETCH_SUCCESS", "property_investigator",
+                     f"CoStar record {rec['id']}: {rec['type']}, built {rec['year_built'] or 'UNKNOWN'}, "
+                     f"surface parking {rec['surface_spaces'] if rec['surface_spaces'] is not None else 'UNKNOWN'} spaces, "
+                     f"{len(rec['model_ids'])} linked Matterport scan(s)."
+                     + (f" Unknown in record: {', '.join(unknown)}." if unknown else ""),
+                     tool="costar.get", source_id=f"CoStar:{rec['id']}", payload=rec)
+                audit.evidence.append(Evidence(
+                    id=f"ev_costar_{prop.id}", property_id=prop.id, provider="CoStar", provider_asset_id=str(rec["id"]),
+                    asset_type="record", retrieved_at=now_iso(), geometry={"summary": rec}, rights=costar.RIGHTS,
+                    quality="Research record. Parking is a property-wide count by type, not a per-lot count.",
+                    is_sponsor_source=True))
+                if rec["surface_spaces"] is not None:
+                    audit.measurements.append(Measurement(
+                        id=f"m_costar_{rec['id']}", audit_id=audit.id, location_id="lot_main", name="parking_total_spaces",
+                        value=rec["surface_spaces"], unit="spaces", method="record", evidence_id=f"ev_costar_{prop.id}",
+                        notes="CoStar surface parking total for the property. Not counted on imagery."))
+            elif costar.status().state == "unavailable":
                 emit(audit, "SOURCE_MISSING", "property_investigator",
                      "No CoStar record: use type, year built and parking count are UNKNOWN, not guessed.", source_id="CoStar")
             else:
                 emit(audit, "SOURCE_MISSING", "property_investigator",
-                     "CoStar extract is on disk but no field mapping exists yet; record fields stay UNKNOWN.", source_id="CoStar")
+                     "This property was entered by hand and is not matched to a CoStar record; record fields stay UNKNOWN.", source_id="CoStar")
             await _step(audit)
 
             # aerial: sponsor source first, labelled public fallback second

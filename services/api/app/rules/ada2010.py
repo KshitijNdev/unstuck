@@ -30,7 +30,8 @@ INSUFFICIENT = "INSUFFICIENT_DATA"
 OUT_OF_SCOPE = "OUT_OF_SCOPE"
 
 # Measurement methods
-TRUSTED_METHODS = {"field", "manual", "model_metric"}
+# "record" = a value taken from a provider record (e.g. CoStar parking count), not measured by us.
+TRUSTED_METHODS = {"field", "manual", "model_metric", "record"}
 SYNTHETIC_METHOD = "synthetic_demo_only"
 UNTRUSTED_METHODS = {"image_estimate"}
 KNOWN_METHODS = TRUSTED_METHODS | UNTRUSTED_METHODS | {SYNTHETIC_METHOD}

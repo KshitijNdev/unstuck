@@ -12,3 +12,7 @@ node_modules/
 .DS_Store
 # never commit sponsor or licensed media
 media_cache/
+
+# sponsor data extracts and caches: never commit
+data/
+.playwright-mcp/

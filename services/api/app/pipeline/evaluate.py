@@ -9,10 +9,10 @@ from ..models import Audit, Finding, Measurement
 from ..rules import ada2010 as rules
 
 # Lower rank = weaker provenance. A check that mixes methods is labelled with the weakest.
-_RANK = {"synthetic_demo_only": 0, "image_estimate": 1, "model_metric": 2, "manual": 3, "field": 4}
+_RANK = {"synthetic_demo_only": 0, "image_estimate": 1, "model_metric": 2, "record": 2.5, "manual": 3, "field": 4}
 _CONFIDENCE = {
     "synthetic_demo_only": "DEMO_SYNTHETIC", "image_estimate": "IMAGE_ESTIMATE_UNVERIFIED",
-    "model_metric": "MODEL_METRIC", "manual": "MANUAL_ENTRY", "field": "FIELD_MEASURED", None: "NO_MEASUREMENT",
+    "model_metric": "MODEL_METRIC", "record": "PROPERTY_RECORD", "manual": "MANUAL_ENTRY", "field": "FIELD_MEASURED", None: "NO_MEASUREMENT",
 }
 _LABEL = {
     rules.PASS: "measured", rules.FAIL: "measured", rules.SUSPECTED: "suspected",
@@ -76,7 +76,15 @@ def evaluate(audit: Audit) -> list[Finding]:
             _int(ms.get("parking_total_spaces")), _int(ms.get("parking_accessible_spaces")),
             _int(ms.get("parking_van_spaces")), kind=fac.kind, method=method,
         )
-        findings += [_finding(audit, r, fac.id, fac.label, 1, method, located, previous) for r in results]
+        total = ms.get("parking_total_spaces")
+        if total is not None and total.method == "record":
+            for r in results:
+                r.assumptions = [*r.assumptions, "Total is the property record's surface parking count. It may cover more "
+                                 "than one lot and has not been counted on imagery; §208.2 applies per lot."]
+        # Label each check by how its OBSERVED count was obtained; the total's provenance is in the assumptions.
+        observed_by = [ms.get("parking_accessible_spaces"), ms.get("parking_van_spaces")]
+        findings += [_finding(audit, r, fac.id, fac.label, 1, o.method if o else method, located, previous)
+                     for r, o in zip(results, observed_by)]
 
     for door in prop.doors:
         ms = _latest(audit.measurements, door.id)
