@@ -10,7 +10,8 @@ from app.providers import vexcel
     (29.7604, -95.3698, "Houston"),
     (38.5816, -121.4944, "Northern California"),  # Sacramento
     (30.4213, -87.2169, "Florida Panhandle"),     # Pensacola
-    (40.3573, -74.6672, None),                   # Princeton
+    (40.3487, -74.6593, "Princeton"),            # Nassau Hall
+    (40.2206, -74.7597, None),                   # Trenton, outside the Princeton box
     (40.7128, -74.0060, None),                   # New York
     (32.7767, -96.7970, None),                   # Dallas
 ])
@@ -31,4 +32,4 @@ def test_outside_geofence_never_calls_api(monkeypatch):
             raise AssertionError("should not call Vexcel")
 
     with pytest.raises(PermissionError, match="geofence"):
-        asyncio.run(vexcel.fetch_image(Boom(), 40.3573, -74.6672))
+        asyncio.run(vexcel.fetch_image(Boom(), 40.7128, -74.0060))
