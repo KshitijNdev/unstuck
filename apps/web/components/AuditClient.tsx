@@ -10,6 +10,7 @@ import { API, getAudit, type AgentEvent, type Audit } from "@/lib/api";
 const EVENT_ICON: Record<string, string> = {
   PLANNED: "☰", FETCH_STARTED: "→", FETCH_SUCCESS: "✓", FETCH_FAILURE: "✕", SOURCE_MISSING: "○",
   OBSERVATION_PROPOSED: "✎", RULE_EVALUATED: "=", REVIEW_REQUESTED: "◌", FINDING_APPROVED: "✓", REPORT_READY: "★",
+  AGENT_NOTE: "❝",
 };
 
 function Timeline({ events, running }: { events: AgentEvent[]; running: boolean }) {
@@ -86,7 +87,11 @@ export function AuditClient({ id }: { id: string }) {
       <section aria-labelledby="act-h" className="grid gap-4 lg:grid-cols-[1fr_1.2fr]">
         <div className="rounded-2xl border border-line bg-card p-4">
           <h2 id="act-h" className="font-display text-xl font-semibold">Activity</h2>
-          <p className="mb-3 text-xs text-muted">Scripted pipeline, step by step. No AI agent is making decisions here yet.</p>
+          <p className="mb-3 text-xs text-muted">
+            {audit?.engine === "claude_agent"
+              ? "A Claude agent chose these steps and tool calls. Check results come from the rule engine, not the model."
+              : "Scripted pipeline: fixed steps, no AI model involved."}
+          </p>
           <Timeline events={events} running={!done} />
         </div>
         <div className="rounded-2xl border border-line bg-card p-4">
@@ -94,6 +99,12 @@ export function AuditClient({ id }: { id: string }) {
           <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm">
             {(audit?.plan ?? []).map((p) => <li key={p}>{p}</li>)}
           </ol>
+          {done && audit?.narrative && (
+            <figure className="mt-4 rounded-xl border border-line p-3 text-sm">
+              <figcaption className="text-xs font-semibold uppercase tracking-wide text-muted">Agent summary · written by AI, check against the results below</figcaption>
+              <blockquote className="mt-1">{audit.narrative}</blockquote>
+            </figure>
+          )}
           {done && counts && (
             <p className="mt-4 rounded-xl bg-paper p-3 text-sm">
               <strong>{audit!.findings.length} checks:</strong> {counts.measured} measured, {counts.suspected} suspected,{" "}

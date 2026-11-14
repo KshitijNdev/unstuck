@@ -71,8 +71,20 @@ async def run_audit(audit_id: str, matterport_model_id: str | None = None) -> No
     audit = store.get(audit_id)
     if audit is None:
         return
+    audit.status = "RUNNING"
     try:
-        await _run(audit, matterport_model_id)
+        from ..agents import orchestrator  # local import: the agent is optional
+        if orchestrator.available():
+            try:
+                audit.engine = "claude_agent"
+                await orchestrator.run(audit, matterport_model_id)
+            except Exception as e:  # model or tool trouble: finish the audit with the fixed script
+                emit(audit, "FETCH_FAILURE", "orchestrator",
+                     f"AI agent stopped ({type(e).__name__}); finishing with the scripted pipeline.", error_class=type(e).__name__)
+                _reset_for_script(audit)
+                await _run(audit, matterport_model_id)
+        else:
+            await _run(audit, matterport_model_id)
         audit.status = "COMPLETE"
     except Exception as e:  # keep the audit readable even if a step blows up
         audit.status = "FAILED"
@@ -81,99 +93,135 @@ async def run_audit(audit_id: str, matterport_model_id: str | None = None) -> No
     store.save(audit)
 
 
-async def _run(audit: Audit, matterport_model_id: str | None) -> None:
-    audit.status = "RUNNING"
-    prop = audit.property
-    assert prop is not None
-    audit.plan = [
-        "Check which data sources are available for this property",
-        "Property investigator: look up the property record",
-        "Exterior inspector: fetch aerial imagery of the site",
-        "Interior inspector: load the 3D model if one is authorized",
-        "Cross-check that every source describes the same property",
-        "Run deterministic ADA 2010 numeric screens on structured measurements",
-        "Queue anything unmeasured for human review",
-        "Assemble the evidence-backed report",
-    ]
-    emit(audit, "PLANNED", "orchestrator", f"Planned {len(audit.plan)} steps for {prop.name}.", payload=audit.plan)
-    await _step(audit)
+def _reset_for_script(audit: Audit) -> None:
+    audit.engine = "scripted_pipeline"
+    audit.plan, audit.evidence, audit.measurements, audit.observations, audit.findings = [], [], [], [], []
+    audit.narrative = None
 
-    # ---- coverage -----------------------------------------------------------
+
+SCRIPT_PLAN = [
+    "Check which data sources are available for this property",
+    "Property investigator: look up the property record",
+    "Exterior inspector: fetch aerial imagery of the site",
+    "Interior inspector: load the 3D model if one is authorized",
+    "Cross-check that every source describes the same property",
+    "Run deterministic ADA 2010 numeric screens on structured measurements",
+    "Queue anything unmeasured for human review",
+    "Assemble the evidence-backed report",
+]
+
+
+# ---- steps (shared by the scripted pipeline and the agent's tools) ---------
+# Each returns a short plain dict describing what happened, which the agent reads.
+
+def set_plan(audit: Audit, steps: list[str], actor: str = "orchestrator") -> dict:
+    audit.plan = steps
+    assert audit.property is not None
+    emit(audit, "PLANNED", actor, f"Planned {len(steps)} steps for {audit.property.name}.", payload=steps)
+    return {"plan_steps": len(steps)}
+
+
+def step_coverage(audit: Audit) -> dict:
     audit.data_availability = sources_status()
     for s in audit.data_availability:
         if s.state == "unavailable":
             emit(audit, "SOURCE_MISSING", "orchestrator", f"{s.provider} ({s.layer}) unavailable: {s.detail}", source_id=s.provider)
-    await _step(audit)
+    return {"sources": [{"provider": s.provider, "layer": s.layer, "state": s.state, "detail": s.detail}
+                        for s in audit.data_availability]}
 
-    async with httpx.AsyncClient() as client:
-        if audit.is_synthetic:
-            _, evidence, measurements, observations = fixture.load(audit.id)
-            audit.evidence, audit.measurements, audit.observations = evidence, measurements, observations
-            emit(audit, "FETCH_SUCCESS", "property_investigator", "Loaded SYNTHETIC fixture record. Not a real building.",
-                 tool="fixture.load", source_id="fixture", payload=prop.model_dump())
-            await _step(audit)
-            emit(audit, "FETCH_SUCCESS", "exterior_inspector", "Loaded SYNTHETIC site schematic and synthetic counts. No imagery involved.",
-                 tool="fixture.load", source_id="fixture")
-            await _step(audit)
-        else:
-            # property record
-            ref = next((r for r in prop.source_refs if r.provider == "CoStar"), None)
-            rec = costar.get(int(ref.source_record_id)) if ref else None
-            if rec:
-                unknown = [k for k in ("type", "year_built", "surface_spaces") if rec.get(k) is None]
-                emit(audit, "FETCH_SUCCESS", "property_investigator",
-                     f"CoStar record {rec['id']}: {rec['type']}, built {rec['year_built'] or 'UNKNOWN'}, "
-                     f"surface parking {rec['surface_spaces'] if rec['surface_spaces'] is not None else 'UNKNOWN'} spaces, "
-                     f"{len(rec['model_ids'])} linked Matterport scan(s)."
-                     + (f" Unknown in record: {', '.join(unknown)}." if unknown else ""),
-                     tool="costar.get", source_id=f"CoStar:{rec['id']}", payload=rec)
-                audit.evidence.append(Evidence(
-                    id=f"ev_costar_{prop.id}", property_id=prop.id, provider="CoStar", provider_asset_id=str(rec["id"]),
-                    asset_type="record", retrieved_at=now_iso(), geometry={"summary": rec}, rights=costar.RIGHTS,
-                    quality="Research record. Parking is a property-wide count by type, not a per-lot count.",
-                    is_sponsor_source=True))
-                if rec["surface_spaces"] is not None:
-                    audit.measurements.append(Measurement(
-                        id=f"m_costar_{rec['id']}", audit_id=audit.id, location_id="lot_main", name="parking_total_spaces",
-                        value=rec["surface_spaces"], unit="spaces", method="record", evidence_id=f"ev_costar_{prop.id}",
-                        notes="CoStar surface parking total for the property. Not counted on imagery."))
-            elif costar.status().state == "unavailable":
-                emit(audit, "SOURCE_MISSING", "property_investigator",
-                     "No CoStar record: use type, year built and parking count are UNKNOWN, not guessed.", source_id="CoStar")
-            else:
-                emit(audit, "SOURCE_MISSING", "property_investigator",
-                     "This property was entered by hand and is not matched to a CoStar record; record fields stay UNKNOWN.", source_id="CoStar")
-            await _step(audit)
 
-            # aerial: sponsor source first, labelled public fallback second
-            aerial = None
-            if prop.lat is not None and prop.lon is not None:
-                if vexcel.status().state != "unavailable":
-                    aerial = await _fetch(audit, "exterior_inspector", "vexcel.ortho_extract", "Vexcel orthophoto",
-                                          lambda: vexcel.fetch_aerial(client, audit.id, prop.id, prop.lat, prop.lon))
-                if aerial is None:
-                    aerial = await _fetch(audit, "exterior_inspector", "usgs.naip_query", "USGS NAIP public fallback image",
-                                          lambda: usgs.fetch_aerial(client, prop.id, prop.lat, prop.lon))
-            if aerial:
-                audit.evidence.append(aerial)
-            else:
-                emit(audit, "SOURCE_MISSING", "exterior_inspector", "No aerial image for this site. Exterior checks need manual input.")
-            await _step(audit)
+def step_fixture(audit: Audit) -> dict:
+    prop = audit.property
+    assert prop is not None
+    _, evidence, measurements, observations = fixture.load(audit.id)
+    audit.evidence, audit.measurements, audit.observations = evidence, measurements, observations
+    emit(audit, "FETCH_SUCCESS", "property_investigator", "Loaded SYNTHETIC fixture record. Not a real building.",
+         tool="fixture.load", source_id="fixture", payload=prop.model_dump())
+    emit(audit, "FETCH_SUCCESS", "exterior_inspector", "Loaded SYNTHETIC site schematic and synthetic counts. No imagery involved.",
+         tool="fixture.load", source_id="fixture")
+    return {"synthetic": True, "evidence": len(evidence), "measurements": len(measurements),
+            "unmeasured_observations": len(observations)}
 
-            # interior
-            if matterport_model_id and matterport.status().state != "unavailable":
-                got = await _fetch(audit, "interior_inspector", "matterport.model_api", f"Matterport model {matterport_model_id}",
-                                   lambda: matterport.fetch_model(client, prop.id, matterport_model_id))
-                if got:
-                    audit.evidence.append(got[0])
-            else:
-                emit(audit, "SOURCE_MISSING", "interior_inspector",
-                     "No authorized Matterport model for this property. Door widths need a field measurement.", source_id="Matterport")
-            await _step(audit)
 
-    # ---- identity cross-check ----------------------------------------------
+def step_record(audit: Audit) -> dict:
+    prop = audit.property
+    assert prop is not None
+    ref = next((r for r in prop.source_refs if r.provider == "CoStar"), None)
+    rec = costar.get(int(ref.source_record_id)) if ref else None
+    if rec:
+        unknown = [k for k in ("type", "year_built", "surface_spaces") if rec.get(k) is None]
+        emit(audit, "FETCH_SUCCESS", "property_investigator",
+             f"CoStar record {rec['id']}: {rec['type']}, built {rec['year_built'] or 'UNKNOWN'}, "
+             f"surface parking {rec['surface_spaces'] if rec['surface_spaces'] is not None else 'UNKNOWN'} spaces, "
+             f"{len(rec['model_ids'])} linked Matterport scan(s)."
+             + (f" Unknown in record: {', '.join(unknown)}." if unknown else ""),
+             tool="costar.get", source_id=f"CoStar:{rec['id']}", payload=rec)
+        if not any(e.id == f"ev_costar_{prop.id}" for e in audit.evidence):
+            audit.evidence.append(Evidence(
+                id=f"ev_costar_{prop.id}", property_id=prop.id, provider="CoStar", provider_asset_id=str(rec["id"]),
+                asset_type="record", retrieved_at=now_iso(), geometry={"summary": rec}, rights=costar.RIGHTS,
+                quality="Research record. Parking is a property-wide count by type, not a per-lot count.",
+                is_sponsor_source=True))
+            if rec["surface_spaces"] is not None:
+                audit.measurements.append(Measurement(
+                    id=f"m_costar_{rec['id']}", audit_id=audit.id, location_id="lot_main", name="parking_total_spaces",
+                    value=rec["surface_spaces"], unit="spaces", method="record", evidence_id=f"ev_costar_{prop.id}",
+                    notes="CoStar surface parking total for the property. Not counted on imagery."))
+        return {"found": True, "record": {k: rec.get(k) for k in ("id", "name", "type", "year_built", "surface_spaces", "model_ids")},
+                "unknown_fields": unknown}
+    if costar.status().state == "unavailable":
+        emit(audit, "SOURCE_MISSING", "property_investigator",
+             "No CoStar record: use type, year built and parking count are UNKNOWN, not guessed.", source_id="CoStar")
+        return {"found": False, "reason": "CoStar data is not available on this server"}
+    emit(audit, "SOURCE_MISSING", "property_investigator",
+         "This property was entered by hand and is not matched to a CoStar record; record fields stay UNKNOWN.", source_id="CoStar")
+    return {"found": False, "reason": "property entered by hand, not matched to a CoStar record"}
+
+
+async def step_aerial(audit: Audit, client: httpx.AsyncClient) -> dict:
+    """Sponsor source first, labelled public fallback second."""
+    prop = audit.property
+    assert prop is not None
+    if any(e.asset_type == "aerial_image" for e in audit.evidence):
+        return {"already_loaded": True}
+    aerial = None
+    if prop.lat is not None and prop.lon is not None:
+        if vexcel.status().state != "unavailable":
+            aerial = await _fetch(audit, "exterior_inspector", "vexcel.ortho_extract", "Vexcel orthophoto",
+                                  lambda: vexcel.fetch_aerial(client, audit.id, prop.id, prop.lat, prop.lon))
+        if aerial is None:
+            aerial = await _fetch(audit, "exterior_inspector", "usgs.naip_query", "USGS NAIP public fallback image",
+                                  lambda: usgs.fetch_aerial(client, prop.id, prop.lat, prop.lon))
+    if aerial:
+        audit.evidence.append(aerial)
+        return {"loaded": True, "provider": aerial.provider, "sponsor_source": aerial.is_sponsor_source,
+                "capture_date": aerial.capture_date, "limits": aerial.quality}
+    emit(audit, "SOURCE_MISSING", "exterior_inspector", "No aerial image for this site. Exterior checks need manual input.")
+    return {"loaded": False}
+
+
+async def step_interior(audit: Audit, client: httpx.AsyncClient, model_id: str | None) -> dict:
+    prop = audit.property
+    assert prop is not None
+    if model_id and matterport.status().state != "unavailable":
+        got = await _fetch(audit, "interior_inspector", "matterport.model_api", f"Matterport model {model_id}",
+                           lambda: matterport.fetch_model(client, prop.id, model_id))
+        if got:
+            audit.evidence = [e for e in audit.evidence if e.asset_type != "tour"] + [got[0]]
+            return {"loaded": True, "summary": got[1],
+                    "note": "The model API exposes rooms and walls, not door openings; door widths need a person."}
+        return {"loaded": False, "reason": "fetch failed"}
+    emit(audit, "SOURCE_MISSING", "interior_inspector",
+         "No authorized Matterport model for this property. Door widths need a field measurement.", source_id="Matterport")
+    return {"loaded": False, "reason": "no authorized model"}
+
+
+def step_identity(audit: Audit) -> dict:
+    prop = audit.property
+    assert prop is not None
     providers = sorted({e.provider for e in audit.evidence})
     mp = next((e for e in audit.evidence if e.provider == "Matterport"), None)
+    dist = None
     if audit.is_synthetic:
         note = "Synthetic fixture: nothing to cross-check."
     elif mp and prop.lat is not None and (mp.geometry or {}).get("summary", {}).get("lat") is not None:
@@ -185,15 +233,46 @@ async def _run(audit: Audit, matterport_model_id: str | None) -> None:
     else:
         note = f"Located sources: {', '.join(providers) or 'none'}. Cross-source identity is unconfirmed until a person checks it."
     emit(audit, "REVIEW_REQUESTED" if not audit.is_synthetic else "PLANNED", "orchestrator", note)
-    await _step(audit)
+    return {"providers": providers, "matterport_distance_m": round(dist) if dist is not None else None, "note": note}
 
+
+def step_rules(audit: Audit) -> dict:
     for obs in audit.observations:
         emit(audit, "OBSERVATION_PROPOSED", "exterior_inspector", f"{obs['title']} (unmeasured, suspected only).", payload=obs)
-
     reevaluate(audit, announce=True)
-    await _step(audit)
-    emit(audit, "REPORT_READY", "report_author",
+    return {"findings": [{"id": f.id, "title": f.title, "location": f.location, "status": f.status, "label": f.label,
+                          "required": f.required, "observed": f.observed, "followup": f.followup}
+                         for f in audit.findings]}
+
+
+def step_report(audit: Audit, actor: str = "report_author") -> None:
+    emit(audit, "REPORT_READY", actor,
          f"Report ready: {len(audit.findings)} checks. Screening only, not a compliance determination.")
+
+
+async def _run(audit: Audit, matterport_model_id: str | None) -> None:
+    """The fixed scripted pipeline: same steps, fixed order, no model."""
+    audit.status = "RUNNING"
+    set_plan(audit, list(SCRIPT_PLAN))
+    await _step(audit)
+    step_coverage(audit)
+    await _step(audit)
+    async with httpx.AsyncClient() as client:
+        if audit.is_synthetic:
+            step_fixture(audit)
+            await _step(audit)
+        else:
+            step_record(audit)
+            await _step(audit)
+            await step_aerial(audit, client)
+            await _step(audit)
+            await step_interior(audit, client, matterport_model_id)
+            await _step(audit)
+    step_identity(audit)
+    await _step(audit)
+    step_rules(audit)
+    await _step(audit)
+    step_report(audit)
 
 
 def reevaluate(audit: Audit, announce: bool = False) -> None:

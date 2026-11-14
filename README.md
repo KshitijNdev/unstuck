@@ -13,7 +13,7 @@ A commercial landlord or property manager who wants to know where accessibility 
 ## What it does today
 
 1. **Pick a property.** Search 541 non-residential buildings in Houston and Los Angeles that have both a CoStar record and a Matterport scan.
-2. **Gather evidence.** A pipeline looks up the CoStar record (use type, year built, parking counts), fetches a Vexcel orthophoto of the site, loads the linked Matterport scan, and checks that the scan sits where CoStar says the building is.
+2. **Gather evidence.** A Claude agent plans the audit and decides which sources to call. It looks up the CoStar record (use type, year built, parking counts), fetches a Vexcel orthophoto of the site, loads the linked Matterport scan, and checks that the scan sits where CoStar says the building is.
 3. **Screen.** A pure-Python rule engine compares structured measurements against the standards. No language model does any arithmetic.
 4. **Ask a person for what it cannot know.** You mark accessible stalls directly on the aerial image, or enter a door width measured on site or in the 3D tour. The checks re-run immediately.
 5. **Report.** A printable action plan groups results into act on, measure next, and meets threshold, with a JSON export and a full audit trail.
@@ -41,7 +41,7 @@ Missing or unverified inputs return "needs field measurement". Nothing is defaul
 | Accessible stall counts | Entered by a person marking the image. Not detected automatically |
 | Door clear width | Entered by a person. Matterport's wall graph exposes walls only, not door openings |
 | Total parking | CoStar's property-wide surface count, flagged because §208.2 applies per lot |
-| Agent | **A fixed scripted pipeline.** It emits a plan and tool-call log, but no LLM plans or decides anything yet |
+| Agent | **Claude (`claude-opus-5-5`) with tool use**, when `ANTHROPIC_API_KEY` is set. It writes the plan, picks which linked scan to load (it inspects them and prefers public areas) and writes a short labelled summary. It cannot create findings, and its summary is rejected if it uses legal words like "compliant" or "violation". Without a key, or if the model fails mid-audit, a fixed scripted pipeline runs the same steps |
 | Demo property | A clearly labelled synthetic fixture, for trying the flow without sponsor data |
 | Cost estimates, tax savings | Not shown. No sourced assumptions exist |
 | Vexcel capture date | Not retrieved yet; shown as unknown |
@@ -71,6 +71,7 @@ Copy `.env.example` to `services/api/.env` and fill in the values from `/costar-
 - `MATTERPORT_API_KEY`, `MATTERPORT_API_TOKEN`
 - `VEXCEL_API_KEY`
 - `COSTAR_KIT_DIR`: path to the unzipped CoStar kit (the folder containing `data/commercial-property.jsonl`)
+- `ANTHROPIC_API_KEY` (optional): turns on the Claude agent. `UNSTUCK_MODEL` overrides the model; `UNSTUCK_AGENT=off` forces the scripted pipeline
 
 `.env` and `data/` are gitignored. Sponsor data is for hackathon use only and is never committed.
 
@@ -81,13 +82,14 @@ apps/web        Next.js 16 + Tailwind: property picker, live audit view, evidenc
 services/api    FastAPI
   app/rules       ada2010.py: deterministic checks, each with a citation
   app/providers   costar, vexcel, matterport, usgs (public fallback), fixture (synthetic)
-  app/pipeline    runner.py (scripted steps + event log), evaluate.py (measurements -> findings)
+  app/agents      orchestrator.py: Claude tool-use loop over the same steps (Anthropic SDK)
+  app/pipeline    runner.py (shared steps, scripted fallback, event log), evaluate.py (measurements -> findings)
   app/routes      audits, events (SSE), measurements, image marks, review, export
-  tests           80 tests: every threshold boundary, missing-data behaviour, API contracts
+  tests           86 tests: every threshold boundary, missing-data behaviour, API contracts, agent loop with a fake model
 docs/HANDOFF.md Full product and engineering brief
 ```
 
-The pipeline emits the event types an agent would (`PLANNED`, `FETCH_STARTED`, `RULE_EVALUATED`, `REVIEW_REQUESTED`, ...) so a `deepagents` orchestrator can replace the script behind the same contract.
+The agent and the scripted pipeline call the same step functions and emit the same events (`PLANNED`, `FETCH_STARTED`, `RULE_EVALUATED`, `REVIEW_REQUESTED`, `AGENT_NOTE`, ...), so the UI doesn't depend on which one ran. Tests never call the real model.
 
 ## Limits you should know
 
@@ -98,7 +100,6 @@ The pipeline emits the event types an agent would (`PLANNED`, `FETCH_STARTED`, `
 
 ## Next
 
-- `deepagents` orchestrator with property, exterior, interior and report subagents (needs a model key)
 - Vision-proposed stall candidates on the Vexcel image, confirmed by a person
 - Vexcel capture dates, oblique views and object detection
 - Owner portfolio view: rank your own buildings by what most needs measuring

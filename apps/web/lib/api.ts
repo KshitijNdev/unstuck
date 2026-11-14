@@ -91,6 +91,7 @@ export interface Audit {
   id: string;
   status: "QUEUED" | "RUNNING" | "COMPLETE" | "FAILED";
   engine: string;
+  narrative: string | null;
   is_synthetic: boolean;
   started_at: string;
   plan: string[];

@@ -16,6 +16,7 @@ SourceState = Literal["connected", "limited", "unavailable"]
 EventType = Literal[
     "PLANNED", "FETCH_STARTED", "FETCH_SUCCESS", "FETCH_FAILURE", "SOURCE_MISSING",
     "OBSERVATION_PROPOSED", "RULE_EVALUATED", "REVIEW_REQUESTED", "FINDING_APPROVED", "REPORT_READY",
+    "AGENT_NOTE",  # free text the agent wrote between tool calls; never a finding
 ]
 AuditStatus = Literal["QUEUED", "RUNNING", "COMPLETE", "FAILED"]
 
@@ -161,7 +162,8 @@ class Audit(BaseModel):
     mode: str = "single_property"
     standard_profile: str = "ADA_2010_SCREEN"
     status: AuditStatus = "QUEUED"
-    engine: str = "scripted_pipeline"   # becomes "deep_agents" once a model key is wired
+    engine: str = "scripted_pipeline"   # or "claude_agent" when a model key is configured
+    narrative: str | None = None        # the agent's plain-language summary; never a finding source
     started_at: str = Field(default_factory=now_iso)
     completed_at: str | None = None
     is_synthetic: bool = False

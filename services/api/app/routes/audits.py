@@ -35,8 +35,13 @@ def _audit(audit_id: str) -> Audit:
 
 @router.get("/sources/status")
 def get_sources_status():
+    from ..agents import orchestrator
+    if orchestrator.available():
+        return {"sources": sources_status(), "engine": "claude_agent",
+                "engine_note": f"A Claude agent ({orchestrator.model_name()}) plans each audit and chooses which sources to "
+                               "call. Every check result comes from the tested rule engine, not the model."}
     return {"sources": sources_status(), "engine": "scripted_pipeline",
-            "engine_note": "Fixed scripted pipeline. No LLM agent is running yet."}
+            "engine_note": "Fixed scripted pipeline (no model key configured). Same checks, fixed order."}
 
 
 @router.get("/properties/demo")

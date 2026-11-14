@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 os.environ["UNSTUCK_STEP_DELAY"] = "0"
-for k in ("VEXCEL_API_KEY", "MATTERPORT_API_KEY", "MATTERPORT_API_TOKEN", "COSTAR_KIT_DIR"):
+for k in ("VEXCEL_API_KEY", "MATTERPORT_API_KEY", "MATTERPORT_API_TOKEN", "COSTAR_KIT_DIR", "ANTHROPIC_API_KEY"):
     os.environ[k] = ""
 
 from app import store  # noqa: E402
