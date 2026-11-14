@@ -1,0 +1,63 @@
+{
+  "_warning": "SYNTHETIC FIXTURE. This property does not exist. No value here was observed at any real building.",
+  "property": {
+    "id": "property_demo_001",
+    "name": "Synthetic Demo Retail Center",
+    "address": "No real address (synthetic fixture)",
+    "city": null,
+    "state": null,
+    "lat": null,
+    "lon": null,
+    "type": "Retail (synthetic)",
+    "year_built": 1978,
+    "is_synthetic": true,
+    "facilities": [{"id": "lot_main", "label": "Main surface lot", "kind": "standard"}],
+    "doors": [
+      {"id": "door_entrance", "label": "Main entrance door", "priority": 1},
+      {"id": "door_suite_b", "label": "Suite B interior door", "priority": 2}
+    ],
+    "source_refs": [{"provider": "fixture", "source_record_id": "synthetic_demo_property.json", "rights": "Synthetic data authored for the demo"}]
+  },
+  "evidence": [
+    {
+      "id": "ev_demo_schematic",
+      "provider": "fixture",
+      "provider_asset_id": "schematic_v1",
+      "asset_type": "schematic",
+      "capture_date": null,
+      "rights": "Synthetic drawing authored for the demo",
+      "quality": "Not imagery. A drawn stand-in so the evidence view can be exercised.",
+      "notes": "SYNTHETIC SCHEMATIC, not an aerial photo of any real place.",
+      "is_synthetic": true,
+      "geometry": {
+        "regions": [
+          {"id": "building", "label": "Building", "x": 0.08, "y": 0.08, "w": 0.84, "h": 0.34, "kind": "building"},
+          {"id": "lot_main", "label": "Main surface lot", "x": 0.08, "y": 0.5, "w": 0.84, "h": 0.42, "kind": "lot"},
+          {"id": "door_entrance", "label": "Main entrance", "x": 0.44, "y": 0.38, "w": 0.12, "h": 0.08, "kind": "door"},
+          {"id": "door_suite_b", "label": "Suite B door", "x": 0.7, "y": 0.2, "w": 0.1, "h": 0.08, "kind": "door"},
+          {"id": "side_entrance", "label": "Side entrance", "x": 0.08, "y": 0.22, "w": 0.06, "h": 0.1, "kind": "door"}
+        ]
+      }
+    }
+  ],
+  "measurements": [
+    {"location_id": "lot_main", "name": "parking_total_spaces", "value": 75, "unit": "spaces"},
+    {"location_id": "lot_main", "name": "parking_accessible_spaces", "value": 2, "unit": "spaces"},
+    {"location_id": "lot_main", "name": "parking_van_spaces", "value": 1, "unit": "spaces"},
+    {"location_id": "door_suite_b", "name": "door_clear_width_in", "value": 34, "unit": "in"},
+    {"location_id": "door_suite_b", "name": "door_opening_depth_in", "value": 4, "unit": "in"}
+  ],
+  "observations": [
+    {
+      "id": "obs_side_step",
+      "location_id": "side_entrance",
+      "location": "Side entrance",
+      "title": "Possible step at side entrance",
+      "rule_id": "ADA_2010_303",
+      "citation": "2010 ADA Standards §303 (changes in level)",
+      "rationale": "A candidate level change was flagged by eye. No height was measured, so nothing can be screened numerically.",
+      "followup": "Measure the height of the level change at the threshold on site.",
+      "priority": 1
+    }
+  ]
+}
