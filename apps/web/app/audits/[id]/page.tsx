@@ -8,7 +8,7 @@ async function Content({ params }: { params: Promise<{ id: string }> }) {
 
 export default function Page({ params }: { params: Promise<{ id: string }> }) {
   return (
-    <Suspense fallback={<p className="text-muted">Loading…</p>}>
+    <Suspense fallback={<p className="mx-auto max-w-6xl px-5 py-10 text-muted">Loading…</p>}>
       <Content params={params} />
     </Suspense>
   );

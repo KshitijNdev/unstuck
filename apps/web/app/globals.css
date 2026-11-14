@@ -1,32 +1,43 @@
 @import "tailwindcss";
 
+/*
+  Unstuck design tokens.
+  Base: poured concrete and drawing sheet, not cream paper.
+  Sign blue is the blue of the accessible-parking sign (the one strong colour).
+  Paint yellow marks what still needs a person; red is reserved for "below threshold".
+*/
 :root {
-  --paper: #fbf7f0;
-  --card: #ffffff;
-  --ink: #1b1f2a;
-  --muted: #5a6172;
-  --line: #e4dccd;
-  --brand: #0e6b5c;
-  --brand-ink: #ffffff;
-  --sun: #f6c445;
-  --fail: #a4271b;
-  --fail-bg: #fdecea;
-  --pass: #14633d;
-  --pass-bg: #e6f4ec;
-  --review: #8a4b06;
-  --review-bg: #fdf1dc;
-  --suspect: #3b4a8f;
-  --suspect-bg: #e9ecfb;
+  --concrete: #e6e7e2;
+  --sheet: #f7f7f3;
+  --ink: #17212b;
+  --muted: #56606a;
+  --line: #c6c9c1;
+  --line-soft: #d9dbd4;
+  --sign: #1450a3;
+  --sign-deep: #0e3d7e;
+  --sign-wash: #e3ebf6;
+  --paint: #f2c230;
+  --fail: #b42318;
+  --fail-bg: #f9e3e0;
+  --pass: #1f6f47;
+  --pass-bg: #e1efe6;
+  --review: #7a5600;
+  --review-bg: #fbf0cc;
+  --suspect: #4b3f8f;
+  --suspect-bg: #ebe8f6;
 }
 
 @theme inline {
-  --color-paper: var(--paper);
-  --color-card: var(--card);
+  --color-concrete: var(--concrete);
+  --color-sheet: var(--sheet);
   --color-ink: var(--ink);
   --color-muted: var(--muted);
   --color-line: var(--line);
-  --color-brand: var(--brand);
-  --color-sun: var(--sun);
+  --color-line-soft: var(--line-soft);
+  --color-sign: var(--sign);
+  --color-sign-deep: var(--sign-deep);
+  --color-sign-wash: var(--sign-wash);
+  --color-paint: var(--paint);
   --color-fail: var(--fail);
   --color-fail-bg: var(--fail-bg);
   --color-pass: var(--pass);
@@ -35,43 +46,75 @@
   --color-review-bg: var(--review-bg);
   --color-suspect: var(--suspect);
   --color-suspect-bg: var(--suspect-bg);
-  --font-sans: var(--font-body);
-  --font-display: var(--font-display);
-  --font-mono: var(--font-geist-mono);
+  /* Legacy names still used in a few places */
+  --color-brand: var(--sign);
+  --color-card: var(--sheet);
+  --color-paper: var(--concrete);
+  --color-sun: var(--paint);
+  --font-sans: "Barlow", system-ui, sans-serif;
+  --font-display: "Barlow Condensed", "Barlow", system-ui, sans-serif;
+}
+
+html {
+  scroll-padding-top: 5rem;
 }
 
 body {
-  background: var(--paper);
+  background: var(--concrete);
   color: var(--ink);
-  font-family: var(--font-body), system-ui, sans-serif;
+  font-family: "Barlow", system-ui, sans-serif;
+  font-size: 1.0625rem;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Condensed signage face for headings; tight, heavy, never letterspaced out */
+.font-display {
+  font-family: "Barlow Condensed", "Barlow", system-ui, sans-serif;
+  letter-spacing: -0.005em;
 }
 
 :focus-visible {
-  outline: 3px solid var(--brand);
+  outline: 3px solid var(--sign);
   outline-offset: 2px;
-  border-radius: 4px;
+}
+
+/* A drawing sheet: the main surface. Square corners; it is paper, not an app card. */
+.sheet {
+  background: var(--sheet);
+  border: 1px solid var(--line);
 }
 
 .field {
   width: 100%;
   border: 1.5px solid var(--line);
-  border-radius: 10px;
+  border-radius: 4px;
   padding: 0.55rem 0.7rem;
-  background: var(--card);
+  background: #fff;
   font: inherit;
+  color: var(--ink);
 }
-.field:hover { border-color: #b9ad97; }
+.field:hover { border-color: #9da298; }
+.field:focus-visible { outline-offset: 0; border-color: var(--sign); }
 
 .btn {
-  display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
-  border-radius: 999px; padding: 0.6rem 1.15rem; font-weight: 600;
-  border: 1.5px solid var(--ink); background: var(--card); color: var(--ink); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem;
+  border-radius: 4px; padding: 0.6rem 1.1rem;
+  font-weight: 600; line-height: 1.2;
+  border: 1.5px solid var(--ink); background: transparent; color: var(--ink); cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
 }
-.btn:hover { background: #f3ecdf; }
-.btn-primary { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); }
-.btn-primary:hover { background: #0a5549; }
-.btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn-sm { padding: 0.35rem 0.8rem; font-size: 0.875rem; }
+.btn:hover { background: var(--ink); color: var(--sheet); }
+.btn-primary { background: var(--sign); border-color: var(--sign); color: #fff; }
+.btn-primary:hover { background: var(--sign-deep); border-color: var(--sign-deep); color: #fff; }
+.btn:disabled, .btn:disabled:hover { opacity: 0.45; cursor: not-allowed; background: transparent; color: var(--ink); }
+.btn-primary:disabled, .btn-primary:disabled:hover { background: var(--sign); color: #fff; }
+.btn-sm { padding: 0.38rem 0.8rem; font-size: 0.9375rem; }
+
+/* Hatched access aisle, the painted stripes beside an accessible stall */
+.hatch {
+  background-image: repeating-linear-gradient(135deg, var(--sign) 0 2px, transparent 2px 7px);
+}
 
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
@@ -80,4 +123,5 @@ body {
 @media print {
   .no-print { display: none !important; }
   body { background: #fff; }
+  .sheet { border-color: #999; }
 }

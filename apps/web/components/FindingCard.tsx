@@ -1,6 +1,8 @@
 "use client";
 
+import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
+import { FindingFigure } from "@/components/FindingFigure";
 import { StatusBadge, ErrorNote } from "@/components/ui";
 import { addMeasurement, CONFIDENCE, verifyFinding, type Finding } from "@/lib/api";
 
@@ -63,33 +65,39 @@ export function FindingCard({ finding: f, auditId, selected, onSelect, onChanged
   };
 
   return (
-    <li className={`rounded-2xl border bg-card p-4 ${selected ? "border-brand ring-2 ring-brand" : "border-line"}`}>
-      <div className="flex flex-wrap items-start justify-between gap-2">
+    <li className={`sheet p-5 transition-shadow ${selected ? "shadow-[inset_4px_0_0_var(--sign)]" : ""}`}>
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted">
-            Priority {f.priority} · {f.location}
-          </p>
-          <h3 className="mt-0.5 text-lg font-semibold">{f.title}</h3>
+          <h3 className="font-display text-[1.6rem] font-bold leading-tight">{f.title}</h3>
+          <p className="text-[0.95rem] text-muted">{f.location}</p>
         </div>
-        <StatusBadge status={f.status} />
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-muted">Priority {f.priority}</span>
+          <motion.span key={f.status} initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+            transition={{ type: "spring", stiffness: 420, damping: 26 }}>
+            <StatusBadge status={f.status} />
+          </motion.span>
+        </div>
       </div>
 
-      <dl className="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-        <div><dt className="text-muted">Requirement</dt><dd className="font-semibold">{f.required ? `≥ ${fmt(f.required)}` : "Not determined"}</dd></div>
-        <div><dt className="text-muted">Observed</dt><dd className="font-semibold">{fmt(f.observed)}</dd></div>
-        <div><dt className="text-muted">Basis</dt><dd className="font-semibold capitalize">{f.label}</dd><dd className="text-muted">{CONFIDENCE[f.confidence] ?? f.confidence}</dd></div>
-        <div><dt className="text-muted">Review</dt><dd className="font-semibold">{f.review_status.replaceAll("_", " ").toLowerCase()}</dd>{f.reviewed_by && <dd className="text-muted">by {f.reviewed_by}</dd>}</div>
+      <FindingFigure finding={f} />
+
+      <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 border-t border-line-soft pt-3 text-[0.95rem] sm:grid-cols-4">
+        <div><dt className="text-sm text-muted">Requirement</dt><dd className="font-semibold">{f.required ? `At least ${fmt(f.required)}` : "Not determined"}</dd></div>
+        <div><dt className="text-sm text-muted">Observed</dt><dd className="font-semibold">{fmt(f.observed)}</dd></div>
+        <div><dt className="text-sm text-muted">Basis</dt><dd className="font-semibold first-letter:uppercase">{f.label}</dd><dd className="text-sm text-muted">{CONFIDENCE[f.confidence] ?? f.confidence}</dd></div>
+        <div><dt className="text-sm text-muted">Review</dt><dd className="font-semibold first-letter:uppercase">{f.review_status.replaceAll("_", " ").toLowerCase()}</dd>{f.reviewed_by && <dd className="text-sm text-muted">by {f.reviewed_by}</dd>}</div>
       </dl>
 
-      <p className="mt-3 text-sm">{f.rationale}</p>
-      {f.required?.condition && <p className="mt-1 text-sm text-muted">{f.observed ? "Applies because" : "Requirement note"}: {f.required.condition}.</p>}
-      {f.borderline && <p className="mt-1 text-sm font-medium text-review">Close to the threshold: re-measure before acting.</p>}
-      <p className="mt-2 text-sm"><span className="font-semibold">Next step: </span>{f.followup}</p>
-      <p className="mt-1 text-xs text-muted">{f.citation} · screening result, not a compliance determination.</p>
+      <p className="mt-4 max-w-[46rem]">{f.rationale}</p>
+      {f.required?.condition && <p className="mt-1 text-[0.95rem] text-muted">{f.observed ? "Applies because" : "Requirement note"}: {f.required.condition}.</p>}
+      {f.borderline && <p className="mt-1 text-[0.95rem] font-semibold text-review">Close to the threshold: re-measure before acting.</p>}
+      <p className="mt-3 max-w-[46rem]"><span className="font-semibold">Next step: </span>{f.followup}</p>
+      <p className="mt-2 text-sm text-muted">{f.citation}. A screening result, not a compliance determination.</p>
 
       {error && <div className="mt-3"><ErrorNote message={error} /></div>}
 
-      <div className="no-print mt-3 flex flex-wrap gap-2">
+      <div className="no-print mt-4 flex flex-wrap gap-2">
         <button className="btn btn-sm" onClick={onSelect} aria-pressed={selected}>
           {selected ? "Showing evidence" : "Show evidence"}
         </button>
@@ -106,32 +114,38 @@ export function FindingCard({ finding: f, auditId, selected, onSelect, onChanged
         )}
       </div>
 
-      {open && (
-        <form onSubmit={submit} className="no-print mt-3 grid gap-3 rounded-xl bg-paper p-3 sm:grid-cols-2">
-          {fields.map((field) => (
-            <label key={field.name} className="text-sm font-medium">
-              {field.label}
-              <input className="field mt-1" type="number" min={0} step={isParking ? 1 : "any"} inputMode="decimal"
-                value={values[field.name] ?? ""} onChange={(e) => setValues({ ...values, [field.name]: e.target.value })} />
-            </label>
-          ))}
-          <label className="text-sm font-medium">
-            How was it measured?
-            <select className="field mt-1" value={method} onChange={(e) => setMethod(e.target.value)}>
-              <option value="field">On site (tape measure / counted in person)</option>
-              <option value="manual">{isParking ? "Counted by a person on the aerial image" : "Entered from another record"}</option>
-              {isDoor && <option value="model_metric">Measured by hand in the 3D tour</option>}
-            </select>
-          </label>
-          <label className="text-sm font-medium">
-            Your name
-            <input className="field mt-1" required maxLength={80} value={who} onChange={(e) => setWho(e.target.value)} />
-          </label>
-          <div className="sm:col-span-2">
-            <button className="btn btn-primary btn-sm" type="submit" disabled={busy}>Save and re-run checks</button>
-          </div>
-        </form>
-      )}
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.form key="measure" onSubmit={submit} className="no-print overflow-hidden"
+            initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}>
+            <div className="mt-4 grid gap-3 border-l-4 border-sign bg-sign-wash p-4 sm:grid-cols-2">
+              {fields.map((field) => (
+                <label key={field.name} className="text-[0.95rem] font-medium">
+                  {field.label}
+                  <input className="field mt-1" type="number" min={0} step={isParking ? 1 : "any"} inputMode="decimal"
+                    value={values[field.name] ?? ""} onChange={(e) => setValues({ ...values, [field.name]: e.target.value })} />
+                </label>
+              ))}
+              <label className="text-[0.95rem] font-medium">
+                How was it measured?
+                <select className="field mt-1" value={method} onChange={(e) => setMethod(e.target.value)}>
+                  <option value="field">On site (tape measure / counted in person)</option>
+                  <option value="manual">{isParking ? "Counted by a person on the aerial image" : "Entered from another record"}</option>
+                  {isDoor && <option value="model_metric">Measured by hand in the 3D tour</option>}
+                </select>
+              </label>
+              <label className="text-[0.95rem] font-medium">
+                Your name
+                <input className="field mt-1" required maxLength={80} value={who} onChange={(e) => setWho(e.target.value)} />
+              </label>
+              <div className="sm:col-span-2">
+                <button className="btn btn-primary btn-sm" type="submit" disabled={busy}>Save and re-run checks</button>
+              </div>
+            </div>
+          </motion.form>
+        )}
+      </AnimatePresence>
     </li>
   );
 }
