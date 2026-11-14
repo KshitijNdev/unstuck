@@ -53,3 +53,25 @@ def get(audit_id: str) -> Audit | None:
 def find_by_finding(finding_id: str) -> Audit | None:
     audit_id = finding_id.split("__", 1)[0]
     return get(audit_id)
+
+
+def usage_totals() -> dict:
+    """Model tokens summed over every audit in this database."""
+    with _lock:
+        rows = _connection().execute(
+            "SELECT json_extract(body, '$.usage') FROM audits WHERE json_array_length(json_extract(body, '$.usage')) > 0"
+        ).fetchall()
+    import json
+    t = {"audits_with_agent": 0, "requests": 0, "input_tokens": 0, "cache_write_tokens": 0,
+         "cache_read_tokens": 0, "output_tokens": 0, "est_cost_usd": 0.0, "unpriced_models": []}
+    for (raw,) in rows:
+        t["audits_with_agent"] += 1
+        for u in json.loads(raw):
+            for k in ("requests", "input_tokens", "cache_write_tokens", "cache_read_tokens", "output_tokens"):
+                t[k] += u.get(k, 0)
+            if u.get("est_cost_usd") is None:
+                t["unpriced_models"] = sorted(set(t["unpriced_models"]) | {u["model"]})
+            else:
+                t["est_cost_usd"] += u["est_cost_usd"]
+    t["est_cost_usd"] = round(t["est_cost_usd"], 4)
+    return t

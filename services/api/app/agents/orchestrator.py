@@ -16,7 +16,7 @@ import anthropic
 import httpx
 
 from .. import store
-from ..models import Audit
+from ..models import Audit, ModelUsage
 from ..pipeline import runner
 from ..providers import costar
 
@@ -154,7 +154,9 @@ async def run(audit: Audit, requested_model: str | None) -> None:
                 model=model_name(), max_tokens=16000, system=SYSTEM, tools=TOOLS, messages=messages,
                 output_config={"effort": "medium"},
                 betas=["server-side-fallback-2026-07-01"], fallbacks="default",
+                cache_control={"type": "ephemeral"},  # each turn resends the history; cache it
             )
+            record_usage(audit, resp)
             if resp.stop_reason == "refusal":
                 raise RuntimeError("model declined")
             messages.append({"role": "assistant", "content": resp.content})  # keep thinking blocks intact
@@ -186,4 +188,48 @@ async def run(audit: Audit, requested_model: str | None) -> None:
             runner.step_rules(audit)
         runner.emit(audit, "AGENT_NOTE", "orchestrator", "Agent ended without a summary; report assembled from rule results only.")
         runner.step_report(audit)
+    for u in audit.usage:
+        runner.emit(audit, "AGENT_NOTE", "orchestrator", usage_line(u))
     store.save(audit)
+
+
+# List prices in USD per million tokens: input, cache write (5 min), cache read, output.
+# Update when prices change; an unknown model gets tokens but no cost estimate.
+PRICES: dict[str, tuple[float, float, float, float]] = {
+    "claude-opus-5-5": (4.00, 5.00, 0.20, 20.00),
+    "claude-sonnet-5-5": (2.00, 2.50, 0.10, 10.00),
+    "claude-haiku-5-5": (0.10, 0.125, 0.01, 0.50),
+    "claude-opus-4-8": (5.00, 6.25, 0.50, 25.00),
+}
+
+
+def record_usage(audit: Audit, resp: Any) -> None:
+    """Add one response's token counts to the audit, keyed by the model that served it."""
+    u = getattr(resp, "usage", None)
+    if u is None:
+        return
+    served = getattr(resp, "model", None) or model_name()
+    row = next((r for r in audit.usage if r.model == served), None)
+    if row is None:
+        row = ModelUsage(model=served)
+        audit.usage.append(row)
+    row.requests += 1
+    row.input_tokens += getattr(u, "input_tokens", 0) or 0
+    row.cache_write_tokens += getattr(u, "cache_creation_input_tokens", 0) or 0
+    row.cache_read_tokens += getattr(u, "cache_read_input_tokens", 0) or 0
+    row.output_tokens += getattr(u, "output_tokens", 0) or 0
+    price = PRICES.get(served)
+    if price:
+        p_in, p_write, p_read, p_out = price
+        row.est_cost_usd = round((row.input_tokens * p_in + row.cache_write_tokens * p_write
+                                  + row.cache_read_tokens * p_read + row.output_tokens * p_out) / 1_000_000, 4)
+        row.price_note = "Estimate at list prices; the Anthropic Console has the billed amount."
+    else:
+        row.est_cost_usd, row.price_note = None, f"No price on file for {served}."
+
+
+def usage_line(u: ModelUsage) -> str:
+    total_in = u.input_tokens + u.cache_write_tokens + u.cache_read_tokens
+    cost = f", about ${u.est_cost_usd:.3f}" if u.est_cost_usd is not None else ""
+    return (f"Model usage ({u.model}): {u.requests} requests, {total_in:,} input tokens "
+            f"({u.cache_read_tokens:,} from cache), {u.output_tokens:,} output tokens{cost}.")

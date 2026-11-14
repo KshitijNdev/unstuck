@@ -87,11 +87,36 @@ export interface Property {
   is_synthetic: boolean;
 }
 
+export interface ModelUsage {
+  model: string;
+  requests: number;
+  input_tokens: number;
+  cache_write_tokens: number;
+  cache_read_tokens: number;
+  output_tokens: number;
+  est_cost_usd: number | null;
+  price_note: string | null;
+}
+
+export interface UsageTotals {
+  audits_with_agent: number;
+  requests: number;
+  input_tokens: number;
+  cache_write_tokens: number;
+  cache_read_tokens: number;
+  output_tokens: number;
+  est_cost_usd: number;
+  unpriced_models: string[];
+}
+
+export const getUsage = () => request<UsageTotals>("/api/usage");
+
 export interface Audit {
   id: string;
   status: "QUEUED" | "RUNNING" | "COMPLETE" | "FAILED";
   engine: string;
   narrative: string | null;
+  usage: ModelUsage[];
   is_synthetic: boolean;
   started_at: string;
   plan: string[];

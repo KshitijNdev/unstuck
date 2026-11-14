@@ -114,3 +114,24 @@ def test_no_key_uses_script(audit, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY")
     asyncio.run(runner.run_audit("a1"))
     assert store.get("a1").engine == "scripted_pipeline"
+
+
+def test_token_usage_is_recorded_and_totalled(audit, monkeypatch):
+    def r(*blocks, stop="tool_use", inp=1000, out=200, read=0, write=0):
+        x = reply(*blocks, stop=stop)
+        x.model = "claude-opus-5-5"
+        x.usage = NS(input_tokens=inp, output_tokens=out, cache_read_input_tokens=read, cache_creation_input_tokens=write)
+        return x
+    use(monkeypatch, [
+        r(call(1, "run_ada_checks"), write=3000),
+        r(call(2, "finish", summary="Measure the entrance door next."), inp=100, read=3000, out=50),
+    ])
+    asyncio.run(runner.run_audit("a1"))
+    a = store.get("a1")
+    [u] = a.usage
+    assert (u.requests, u.input_tokens, u.cache_write_tokens, u.cache_read_tokens, u.output_tokens) == (2, 1100, 3000, 3000, 250)
+    # 1100*4 + 3000*5 + 3000*0.2 + 250*20 = 25000 per million
+    assert u.est_cost_usd == 0.025
+    assert any(e.summary.startswith("Model usage (claude-opus-5-5): 2 requests") for e in a.events)
+    t = store.usage_totals()
+    assert t["audits_with_agent"] == 1 and t["output_tokens"] == 250 and t["est_cost_usd"] == 0.025

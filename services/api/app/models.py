@@ -156,6 +156,18 @@ class SourceStatus(BaseModel):
     match_confidence: str | None = None
 
 
+class ModelUsage(BaseModel):
+    """Tokens the AI agent used on one audit, summed over every model request."""
+    model: str
+    requests: int = 0
+    input_tokens: int = 0            # uncached input
+    cache_write_tokens: int = 0
+    cache_read_tokens: int = 0
+    output_tokens: int = 0           # includes thinking
+    est_cost_usd: float | None = None  # list-price estimate; None if the model's price is unknown
+    price_note: str | None = None
+
+
 class Audit(BaseModel):
     id: str
     property_id: str
@@ -164,6 +176,7 @@ class Audit(BaseModel):
     status: AuditStatus = "QUEUED"
     engine: str = "scripted_pipeline"   # or "claude_agent" when a model key is configured
     narrative: str | None = None        # the agent's plain-language summary; never a finding source
+    usage: list[ModelUsage] = []        # one entry per model that served requests (a fallback adds one)
     started_at: str = Field(default_factory=now_iso)
     completed_at: str | None = None
     is_synthetic: bool = False

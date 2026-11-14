@@ -79,6 +79,8 @@ async def run_audit(audit_id: str, matterport_model_id: str | None = None) -> No
                 audit.engine = "claude_agent"
                 await orchestrator.run(audit, matterport_model_id)
             except Exception as e:  # model or tool trouble: finish the audit with the fixed script
+                for u in audit.usage:  # tokens already spent still count
+                    emit(audit, "AGENT_NOTE", "orchestrator", orchestrator.usage_line(u))
                 emit(audit, "FETCH_FAILURE", "orchestrator",
                      f"AI agent stopped ({type(e).__name__}); finishing with the scripted pipeline.", error_class=type(e).__name__)
                 _reset_for_script(audit)

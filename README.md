@@ -42,6 +42,7 @@ Missing or unverified inputs return "needs field measurement". Nothing is defaul
 | Door clear width | Entered by a person. Matterport's wall graph exposes walls only, not door openings |
 | Total parking | CoStar's property-wide surface count, flagged because §208.2 applies per lot |
 | Agent | **Claude (`claude-opus-5-5`) with tool use**, when `ANTHROPIC_API_KEY` is set. It writes the plan, picks which linked scan to load (it inspects them and prefers public areas) and writes a short labelled summary. It cannot create findings, and its summary is rejected if it uses legal words like "compliant" or "violation". Without a key, or if the model fails mid-audit, a fixed scripted pipeline runs the same steps |
+| AI token usage | Recorded per audit (requests, input, cached, output tokens, list-price estimate), shown on the audit page and totalled at `GET /api/usage`. A typical audit is about 8 requests, 50k input tokens (mostly cached) and 1.5k output tokens, about $0.09 on `claude-opus-5-5` |
 | Demo property | A clearly labelled synthetic fixture, for trying the flow without sponsor data |
 | Cost estimates, tax savings | Not shown. No sourced assumptions exist |
 | Vexcel capture date | Not retrieved yet; shown as unknown |
@@ -85,7 +86,7 @@ services/api    FastAPI
   app/agents      orchestrator.py: Claude tool-use loop over the same steps (Anthropic SDK)
   app/pipeline    runner.py (shared steps, scripted fallback, event log), evaluate.py (measurements -> findings)
   app/routes      audits, events (SSE), measurements, image marks, review, export
-  tests           86 tests: every threshold boundary, missing-data behaviour, API contracts, agent loop with a fake model
+  tests           87 tests: every threshold boundary, missing-data behaviour, API contracts, agent loop with a fake model, token accounting
 docs/HANDOFF.md Full product and engineering brief
 ```
 

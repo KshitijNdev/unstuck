@@ -3,12 +3,13 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { CoverageCards, ErrorNote } from "@/components/ui";
-import { createAudit, getSources, searchProperties, type CostarHit, type SourceStatus } from "@/lib/api";
+import { createAudit, getSources, getUsage, searchProperties, type CostarHit, type SourceStatus, type UsageTotals } from "@/lib/api";
 
 export default function Home() {
   const router = useRouter();
   const [sources, setSources] = useState<SourceStatus[] | null>(null);
   const [engineNote, setEngineNote] = useState("");
+  const [usage, setUsage] = useState<UsageTotals | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [authorized, setAuthorized] = useState(false);
@@ -21,6 +22,7 @@ export default function Home() {
     getSources()
       .then((r) => { setSources(r.sources); setEngineNote(r.engine_note); })
       .catch((e: Error) => setError(e.message));
+    getUsage().then(setUsage).catch(() => setUsage(null));
   }, []);
 
   useEffect(() => {
@@ -161,6 +163,14 @@ export default function Home() {
       <section aria-labelledby="cov-h">
         <h2 id="cov-h" className="font-display text-2xl font-semibold">Data sources right now</h2>
         <p className="mt-1 text-sm text-muted">{engineNote}</p>
+        {usage && usage.audits_with_agent > 0 && (
+          <p className="mt-1 text-sm text-muted">
+            AI usage so far: {usage.audits_with_agent} agent audit(s), {usage.requests} requests,{" "}
+            {(usage.input_tokens + usage.cache_write_tokens + usage.cache_read_tokens).toLocaleString()} input and{" "}
+            {usage.output_tokens.toLocaleString()} output tokens, about ${usage.est_cost_usd.toFixed(2)} at list price
+            {usage.unpriced_models.length ? ` (plus unpriced: ${usage.unpriced_models.join(", ")})` : ""}.
+          </p>
+        )}
         <div className="mt-4">
           {sources ? <CoverageCards sources={sources} /> : !error && <p className="text-muted">Checking sources…</p>}
         </div>

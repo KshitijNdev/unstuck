@@ -105,6 +105,20 @@ export function AuditClient({ id }: { id: string }) {
               <blockquote className="mt-1">{audit.narrative}</blockquote>
             </figure>
           )}
+          {done && audit && audit.usage?.length > 0 && (
+            <div className="mt-3 text-xs text-muted">
+              {audit.usage.map((u) => {
+                const input = u.input_tokens + u.cache_write_tokens + u.cache_read_tokens;
+                return (
+                  <p key={u.model} title={u.price_note ?? undefined}>
+                    AI usage ({u.model}): {u.requests} requests · {input.toLocaleString()} input tokens
+                    ({u.cache_read_tokens.toLocaleString()} cached) · {u.output_tokens.toLocaleString()} output tokens
+                    {u.est_cost_usd != null ? ` · about $${u.est_cost_usd.toFixed(3)} at list price` : " · no price on file"}
+                  </p>
+                );
+              })}
+            </div>
+          )}
           {done && counts && (
             <p className="mt-4 rounded-xl bg-paper p-3 text-sm">
               <strong>{audit!.findings.length} checks:</strong> {counts.measured} measured, {counts.suspected} suspected,{" "}

@@ -33,6 +33,12 @@ def _audit(audit_id: str) -> Audit:
     return audit
 
 
+@router.get("/usage")
+def get_usage():
+    """Running total of AI model tokens across every audit on this server."""
+    return store.usage_totals()
+
+
 @router.get("/sources/status")
 def get_sources_status():
     from ..agents import orchestrator
