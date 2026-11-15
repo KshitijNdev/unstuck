@@ -7,7 +7,7 @@ import { aerialSources, layerOf, SpatialStage, type Layer } from "@/components/S
 import { SuggestionsPanel } from "@/components/SuggestionsPanel";
 import { RouteReplay } from "@/components/RouteReplay";
 import { rovingKeys, StatusBadge } from "@/components/ui";
-import { acceptScanEstimates, getSources, startAnalysis, TRIAGE, type Audit, type Finding } from "@/lib/api";
+import { acceptScanEstimates, getSources, startAnalysis, TRIAGE, type Audit, type Finding, feetInches, doorwayNumber } from "@/lib/api";
 
 type Filter = "all" | "below" | "review" | "meets" | "doors";
 const FILTERS: { id: Filter; label: string; test: (f: Finding) => boolean }[] = [
@@ -59,6 +59,7 @@ export function SpatialWorkspace({ audit, auditId, selected, onSelect, onChanged
   const [filter, setFilter] = useState<Filter>("all");
   const [tab, setTab] = useState<Tab>("checks");
   const [group, setGroup] = useState<Group>("type");
+  const [order, setOrder] = useState<"urgent" | "walk">("urgent");
   const [closed, setClosed] = useState<Set<string>>(new Set());
   const [wide, setWide] = useState(false);
   const [aerialId, setAerialId] = useState<string | null>(null);
@@ -92,8 +93,12 @@ export function SpatialWorkspace({ audit, auditId, selected, onSelect, onChanged
     catch (err) { setAcceptError((err as Error).message); }
     finally { setAccepting(false); }
   }
+  // Walking order: scan doorways by their number, which follows the floor plan, so neighbours sit together.
+  const listed = order === "walk"
+    ? [...visible].sort((a, b) => (doorwayNumber(a.location) ?? -1) - (doorwayNumber(b.location) ?? -1))
+    : visible;
   const groups = new Map<string, Finding[]>();
-  for (const f of visible) { const k = groupKey(f, group, audit); groups.set(k, [...(groups.get(k) ?? []), f]); }
+  for (const f of listed) { const k = groupKey(f, group, audit); groups.set(k, [...(groups.get(k) ?? []), f]); }
   const toggle = (k: string) => setClosed((c) => { const n = new Set(c); if (n.has(k)) n.delete(k); else n.add(k); return n; });
 
   // Poll only while Gemini is working; the run writes its progress to the audit.
@@ -247,6 +252,11 @@ export function SpatialWorkspace({ audit, auditId, selected, onSelect, onChanged
                 <option value="scan">Scan</option><option value="review">Review status</option>
               </select>
             </label>
+            <label>Order{" "}
+              <select value={order} onChange={(e) => setOrder(e.target.value as "urgent" | "walk")}>
+                <option value="urgent">Most urgent first</option><option value="walk">Walking order</option>
+              </select>
+            </label>
             <button type="button" className="sw-wide-btn" aria-pressed={wide} onClick={() => setWide(!wide)}>
               {wide ? "Back to map" : "Expand list"}
             </button>
@@ -270,7 +280,7 @@ export function SpatialWorkspace({ audit, auditId, selected, onSelect, onChanged
                             <button type="button" className={`sw-row ${on ? "on" : ""}`} aria-current={on || undefined} onClick={() => choose(f)}>
                               <span className="sw-num">{index}</span>
                               <span className="sw-row-text"><strong>{f.title}</strong>
-                                <span>{placeLabel(f.location)}{f.observed?.triage ? ` · ${TRIAGE[f.observed.triage]}` : ""}</span></span>
+                                <span>{placeLabel(f.location)}{f.observed?.triage ? ` · ${feetInches(f.observed.value)} opening · ${TRIAGE[f.observed.triage]}` : ""}</span></span>
                               <StatusBadge status={f.status} />
                             </button>
                           )}

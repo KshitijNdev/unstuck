@@ -185,8 +185,35 @@ def floor_plan(model: dict[str, Any]) -> dict[str, list[list[float]]]:
     return out
 
 
+def walking_order(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Order doorways the way a person would meet them: floor by floor, each one followed by its nearest neighbour.
+
+    Doorway numbers come from this order, so doors that stand side by side get neighbouring numbers. Each floor
+    starts at its leftmost doorway. Doorways with no position go last on their floor, narrowest first.
+    The walk is nearest-neighbour, not a planned route: it can still jump across a room when one end runs out."""
+    out: list[dict[str, Any]] = []
+    floors: list[str] = []
+    for d in rows:
+        if d["floor"] not in floors:
+            floors.append(d["floor"])
+    for floor in floors:
+        here = [d for d in rows if d["floor"] == floor]
+        placed = sorted((d for d in here if d.get("center")), key=lambda d: (d["center"][0], d["center"][1]))
+        loose = sorted((d for d in here if not d.get("center")), key=lambda d: (d["width_in"] is None, d["width_in"] or 0))
+        while placed:
+            if not out or out[-1]["floor"] != floor or not out[-1].get("center"):
+                nxt = placed[0]
+            else:
+                x, y = out[-1]["center"]
+                nxt = min(placed, key=lambda d: (d["center"][0] - x) ** 2 + (d["center"][1] - y) ** 2)
+            placed.remove(nxt)
+            out.append(nxt)
+        out += loose
+    return out
+
+
 def doorways(model: dict[str, Any]) -> list[dict[str, Any]]:
-    """Every doorway opening in a fetched model's floor plan, widths converted to inches (narrowest first)."""
+    """Every doorway opening in a fetched model's floor plan, widths converted to inches, in walking order."""
     out = []
     for fi, f in enumerate(model.get("floors") or []):
         for e in f.get("edges") or []:
@@ -214,4 +241,4 @@ def doorways(model: dict[str, Any]) -> list[dict[str, Any]]:
                         "width_m": w, "thickness_m": e.get("thickness"), "lower_m": o.get("lowerElevation"),
                         "height_m": o.get("height"),
                     }
-    return sorted(out, key=lambda d: (d["width_in"] is None, d["width_in"] or 0))
+    return walking_order(out)

@@ -4,7 +4,7 @@ import { motion } from "motion/react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { builtBeforeAda, ErrorNote, PreAdaNote, rovingKeys } from "@/components/ui";
 import { TourMeasure } from "@/components/TourMeasure";
-import { CATEGORY_LABEL, chooseModel, evidenceUrl, getSources, saveMarkups, suggestMarkups, type Audit, type StallSuggestion, type Candidate, type Evidence, type Finding, type Pin,
+import { CATEGORY_LABEL, doorwayNumber, feetInches, chooseModel, evidenceUrl, getSources, saveMarkups, suggestMarkups, type Audit, type StallSuggestion, type Candidate, type Evidence, type Finding, type Pin,
   type Region } from "@/lib/api";
 
 export type Layer = "aerial" | "interior" | "record";
@@ -31,8 +31,10 @@ type ScanDoor = { door_id?: string; floor: string; center?: [number, number] | n
 
 /** The floor plan Matterport drew, with every scan doorway on that floor; the selected one is ringed. Positions come
  *  from the wall vertices and each opening's place along its wall, never from a guess. */
-function ScanPlan({ walls, doors, selectedDoor, onPick }: {
+function ScanPlan({ walls, doors, selectedDoor, onPick, numbers }: {
   walls: number[][]; doors: ScanDoor[]; selectedDoor: string; onPick: (doorId: string) => void;
+  /** Doorway number by door id, so the plan can be read against the findings list. */
+  numbers: Record<string, number>;
 }) {
   const xs = walls.flatMap((w) => [w[0], w[2]]), ys = walls.flatMap((w) => [w[1], w[3]]);
   const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
@@ -41,11 +43,18 @@ function ScanPlan({ walls, doors, selectedDoor, onPick }: {
   const unit = Math.max(x1 - x0, y1 - y0) / 100;
   const on = doors.find((d) => d.door_id === selectedDoor);
   return (
-    <svg className="st-plan-svg" viewBox={vb} role="img" aria-label="Matterport floor plan with the selected doorway ringed">
+    <svg className="st-plan-svg" viewBox={vb} role="img" aria-label="Matterport floor plan with each scan doorway numbered and the selected one ringed">
       {walls.map((w, i) => <line key={i} x1={w[0]} y1={-w[1]} x2={w[2]} y2={-w[3]} className="st-plan-wall" strokeWidth={unit * 0.7} />)}
       {doors.filter((d) => d.center && d.door_id !== selectedDoor).map((d) => (
         <circle key={d.door_id} cx={d.center![0]} cy={-d.center![1]} r={unit * 1.4} className="st-plan-door"
-          onClick={() => d.door_id && onPick(d.door_id)}><title>{`Doorway, ${d.width_in ?? "?"} in frame opening`}</title></circle>
+          onClick={() => d.door_id && onPick(d.door_id)}>
+          <title>{`Scan doorway ${numbers[d.door_id ?? ""] ?? "?"}, ${d.width_in ?? "?"} in frame opening`}</title>
+        </circle>
+      ))}
+      {doors.filter((d) => d.center && d.door_id && numbers[d.door_id] != null).map((d) => (
+        <text key={`n-${d.door_id}`} x={d.center![0] + unit * 2.2} y={-d.center![1] + unit * 1.3} fontSize={unit * 3.4}
+          className={`st-plan-num ${d.door_id === selectedDoor ? "on" : ""}`} strokeWidth={unit * 0.9}
+          onClick={() => onPick(d.door_id!)}>{numbers[d.door_id!]}</text>
       ))}
       {on?.center && (
         <g>
@@ -556,10 +565,12 @@ export function SpatialStage({ audit, auditId, selected, onSelect, layer, setLay
             <div className="st-locnote" role="status">
               {placed && (
                 <ScanPlan walls={walls!} doors={tourInfo!.doorways!.filter((d) => d.floor === door!.floor)} selectedDoor={selected.location_id}
+                  numbers={Object.fromEntries(audit.property.doors.flatMap((d) => { const n = doorwayNumber(d.label); return n == null ? [] : [[d.id, n]]; }))}
                   onPick={(id) => { const f = audit.findings.find((x) => x.location_id === id); if (f) onSelect(f.id); }} />
               )}
               <p>
                 <strong>{selected.location.replace(/ \(door-[^)]*\)$/, "")}</strong>
+                {selected.observed?.triage && ` · ${feetInches(selected.observed.value)} opening`}
                 {ready ? ` · scan ${linked.indexOf(doorModel) + 1 || ""} (${doorModel})` : ` · opening scan ${doorModel}…`}
               </p>
               {ready && (

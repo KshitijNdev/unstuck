@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { FindingFigure } from "@/components/FindingFigure";
 import { StatusBadge, ErrorNote } from "@/components/ui";
-import { addMeasurement, CONFIDENCE, verifyFinding, type Finding, TRIAGE, takeScanWidth } from "@/lib/api";
+import { addMeasurement, CONFIDENCE, verifyFinding, type Finding, TRIAGE, takeScanWidth, feetInches } from "@/lib/api";
 
 const PARKING_FIELDS = [
   { name: "parking_total_spaces", label: "Total spaces in this lot" },
@@ -152,7 +152,12 @@ export function FindingCard({ finding: f, auditId, selected, onSelect, onChanged
         <form className="no-print mt-4 grid gap-2 border-l-4 border-sign bg-sign-wash p-4 text-[0.95rem]"
           onSubmit={(e) => { e.preventDefault(); run(async () => { await takeScanWidth(auditId, f.location_id, doorKind, who); }); }}>
           <p className="font-semibold">Use the scan&apos;s width without measuring</p>
-          <p className="text-muted">Look at this doorway in the 3D tour and say what is there.</p>
+          <p>
+            The scan draws this opening <strong>{feetInches(f.observed!.value)}</strong> wide ({f.observed!.value} in).
+            The tour labels openings the same way, so check the doorway on screen shows that width before you go on.
+            Doorways often sit side by side.
+          </p>
+          <p className="text-muted">Then say what is in the opening.</p>
           <label className="flex items-start gap-2">
             <input type="radio" name={`kind-${f.id}`} className="mt-1" checked={doorKind === "none"} onChange={() => setDoorKind("none")} />
             <span>No door in the opening. Clear width is the opening: <strong>{scanWidth} in</strong>.</span>

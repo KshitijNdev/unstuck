@@ -352,3 +352,21 @@ def test_doorway_sorting_note_counts_like_the_inspector(audit):
     first = sum(t in ("narrow", "likely_narrow") for t in tri)
     note = next(e.summary for e in audit.events if "Sorted by scan width" in e.summary)
     assert f"{first} to measure first" in note and first >= 1
+
+
+def test_doorways_are_numbered_in_walking_order():
+    """Neighbouring doors get neighbouring numbers; width no longer decides the order."""
+    from app.providers import matterport
+
+    def wall(x, openings):   # a wall running north from (x, 0) to (x, 10)
+        return {"thickness": 0.15, "vertices": [{"position": {"x": x, "y": 0}}, {"position": {"x": x, "y": 10}}],
+                "openings": [{"id": oid, "type": "doorway", "width": w, "relativeCenter": t} for oid, w, t in openings]}
+
+    model = {"floors": [
+        {"label": "Floor 1", "edges": [wall(20, [("far_narrow", 0.7, 0.5)]),
+                                       wall(0, [("west_wide", 1.8, 0.1), ("west_next", 0.9, 0.2)]),
+                                       wall(5, [("mid", 1.0, 0.2)]),
+                                       {"openings": [{"id": "unplaced", "type": "doorway", "width": 0.8}]}]},
+        {"label": "Floor 2", "edges": [wall(3, [("upstairs", 0.9, 0.5)])]}]}
+    order = [d["opening_id"] for d in matterport.doorways(model)]
+    assert order == ["west_wide", "west_next", "mid", "far_narrow", "unplaced", "upstairs"]

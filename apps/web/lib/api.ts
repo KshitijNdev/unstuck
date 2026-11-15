@@ -320,6 +320,16 @@ export const applyCandidates = (id: string, evidence_id: string, reviewer: strin
 export const takeScanWidth = (id: string, doorId: string, door: "none" | "hinged", reviewed_by: string) =>
   request<unknown>(`/api/audits/${id}/doors/${encodeURIComponent(doorId)}/use-scan-width`,
     { method: "POST", body: JSON.stringify({ door, reviewed_by }) });
+/** The number in a scan doorway's name ("Scan doorway 12, Floor 1" -> 12), or null for anything else. */
+export const doorwayNumber = (location: string) => {
+  const m = /^Scan doorway (\d+)/.exec(location);
+  return m ? Number(m[1]) : null;
+};
+/** Inches the way the Matterport tour labels them, so a width here can be matched to the one on screen: 29.6 -> "2 ft 6 in". */
+export const feetInches = (inches: number) => {
+  const total = Math.round(inches);
+  return total < 12 ? `${total} in` : `${Math.floor(total / 12)} ft ${total % 12} in`;
+};
 export const acceptScanEstimates = (id: string, reviewed_by: string) =>
   request<{ accepted: number }>(`/api/audits/${id}/doors/accept-scan-estimates`, { method: "POST", body: JSON.stringify({ reviewed_by }) });
 export const getMatterportSdk = () =>

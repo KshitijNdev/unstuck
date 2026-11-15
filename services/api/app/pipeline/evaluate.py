@@ -145,5 +145,9 @@ def evaluate(audit: Audit) -> list[Finding]:
         findings.append(f)
 
     order = {rules.FAIL: 0, rules.SUSPECTED: 1, rules.FIELD: 2, rules.INSUFFICIENT: 3, rules.OUT_OF_SCOPE: 4, rules.PASS: 5}
-    findings.sort(key=lambda f: (f.priority, order[f.status], _natural(f.location)))
+    # Most urgent first. Within one result, scan doorways go by how likely they are to be too narrow, then in
+    # walking order (their numbers), so neighbouring doors stay together.
+    band = {"narrow": 0, "likely_narrow": 1, "measure": 2, "likely_wide": 3}
+    findings.sort(key=lambda f: (f.priority, order[f.status], band.get((f.observed or {}).get("triage"), 0),
+                                 _natural(f.location)))
     return findings

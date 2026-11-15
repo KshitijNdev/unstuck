@@ -584,6 +584,7 @@ body:has(.lx) > header, body:has(.lx) > footer { display: none; }
 
 /* Findings: grouping, wide list, scan-doorway provenance */
 .sw-groupbar { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .6rem 1.1rem; border-bottom: 1px solid var(--line); font-size: .85rem; color: var(--muted); }
+.sw-groupbar { flex-wrap: wrap; row-gap: .4rem; }
 .sw-groupbar select { margin-left: .35rem; padding: .2rem .4rem; border: 1px solid var(--line); border-radius: 6px; background: var(--sheet); color: var(--ink); font: inherit; }
 .sw-wide-btn { padding: .25rem .65rem; border: 1px solid var(--line); border-radius: 999px; background: var(--sheet); color: var(--ink); font-weight: 600; cursor: pointer; }
 .sw-wide-btn[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: #fff; }
@@ -611,11 +612,13 @@ body:has(.lx) > header, body:has(.lx) > footer { display: none; }
 .st-canvas:has(.st-locnote) .st-tour { left: calc(300px + 1.5rem); width: calc(100% - var(--inset) - 300px - 2.25rem); }
 .st-locnote p { margin: 0; }
 .st-locnote span { display: block; color: #b4bec7; margin-top: .3rem; }
-.st-plan-svg { display: block; width: 100%; height: 190px; margin-bottom: .55rem; border-radius: 8px; background: #1a232c; }
+.st-plan-svg { display: block; width: 100%; height: 250px; margin-bottom: .55rem; border-radius: 8px; background: #1a232c; }
 .st-plan-wall { stroke: #8b98a5; stroke-linecap: round; }
 .st-plan-door { fill: #5b8fd6; cursor: pointer; }
 .st-plan-ring { fill: none; stroke: #f5c542; }
 .st-plan-on { fill: #f5c542; }
+.st-plan-num { fill: #e8eef4; stroke: #1a232c; paint-order: stroke; font-family: "Barlow", sans-serif; font-weight: 600; cursor: pointer; user-select: none; }
+.st-plan-num.on { fill: #f5c542; font-weight: 700; }
 .sw-list li { scroll-margin-top: 2.9rem; }
 
 /* Analysis and evidence (full screen): side nav, one readable column */
