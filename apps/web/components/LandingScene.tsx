@@ -303,7 +303,7 @@ function Site() {
   }, []);
   // Hatched access aisle between the two accessible stalls.
   const hatch = useMemo(() => Array.from({ length: 7 }, (_, k) => ({ x: -1.35, z: 1.8 + k * 0.78, w: 2.9, d: 0.16, r: -0.62 })), []);
-  const trees: [number, number][] = [[-30, -7], [-30, 5], [-30, 17], [30, -7], [30, 5], [30, 17], [-13, 11], [13, 11], [0, 26], [-18, 27], [18, 27]];
+  const trees: [number, number][] = [[-30, -7], [-30, 5], [-30, 17], [30, -7], [30, 5], [30, 17], [-13, 11], [13, 11], [-18, 23.7], [18, 23.7]];
   const cars: [number, number, string][] = [[-17.55, 3.9, "#8d969d"], [-12.15, 3.9, "#c9ccc8"], [9.45, 3.9, "#5c6a78"], [17.55, 3.9, "#b8b1a5"],
     [-9.45, 18.1, "#a4abb0"], [4.05, 18.1, "#6f7a72"], [14.85, 18.1, "#d6d4cd"]];
   return (
@@ -315,7 +315,8 @@ function Site() {
       <Box size={[1.5, 0.18, 1.84]} pos={[-1.35, 0.09, -3.08]} color="#d6d5ce" />
       <Box size={[24.9, 0.19, 0.14]} pos={[-14.55, 0.095, -0.07]} color="#c4c2ba" shadow={false} />
       <Box size={[27.6, 0.19, 0.14]} pos={[13.2, 0.095, -0.07]} color="#c4c2ba" shadow={false} />
-      <Box size={[64, 0.12, 2.2]} pos={[0, 0.06, 23.4]} color="#d6d5ce" />
+      {/* South walk: full block width and right up to the street, at the city's curb height */}
+      <Box size={[66, 0.15, 2.7]} pos={[0, 0.075, 23.65]} color="#d6d5ce" />
       {/* building */}
       <Box size={[44, 8.5, 14]} pos={[0, 4.25, -11]} color="#efeee9" />
       <Box size={[44.6, 0.7, 14.6]} pos={[0, 8.85, -11]} color="#e3e2dc" />
@@ -338,9 +339,10 @@ function Site() {
       <Lines items={hatch} />
       <CurbRamp />
       {cars.map(([x, z, c]) => (
-        <group key={`${x},${z}`} position={[x, 0, z]}>
-          <Box size={[1.85, 0.7, 4.3]} pos={[0, 0.55, 0]} color={c} rough={0.45} metal={0.2} />
-          <Box size={[1.6, 0.55, 2.2]} pos={[0, 1.15, -0.2]} color="#46525c" rough={0.2} metal={0.3} />
+        <group key={`${x},${z}`} position={[x, 0.04, z]}>{/* sits on the lot surface (top 0.04) on its wheels */}
+          <Box size={[1.7, 0.32, 3.5]} pos={[0, 0.16, 0]} color="#22282e" rough={0.8} />
+          <Box size={[1.85, 0.7, 4.3]} pos={[0, 0.59, 0]} color={c} rough={0.45} metal={0.2} />
+          <Box size={[1.6, 0.55, 2.2]} pos={[0, 1.215, -0.2]} color="#46525c" rough={0.2} metal={0.3} />
         </group>
       ))}
       {[[-26, 0.5], [26, 0.5], [-26, 21.5], [26, 21.5], [0, 11]].map(([x, z]) => (

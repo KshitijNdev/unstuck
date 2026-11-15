@@ -107,7 +107,7 @@ export function SpatialWorkspace({ audit, auditId, selected, onSelect, onChanged
     const li = openRef.current;
     // Scroll only when the selection changes after the page opened, so the counts stay in view on load (and the
     // effect running twice in development does not count as a change).
-    if (lastSelected.current !== null && lastSelected.current !== selected?.id) li?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    if (lastSelected.current !== null && lastSelected.current !== selected?.id) li?.scrollIntoView({ block: "start", behavior: "smooth" });  // start, not nearest: a tall card would otherwise show only its bottom
     lastSelected.current = selected?.id ?? null;
   }, [selected?.id]);
 

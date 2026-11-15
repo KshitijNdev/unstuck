@@ -362,8 +362,9 @@ def reevaluate(audit: Audit, announce: bool = False) -> None:
         emit(audit, "RULE_EVALUATED", "rules_evaluator", f"{f.title} at {f.location}: {f.status}.",
              tool="ada2010", payload={"required": f.required, "observed": f.observed, "status": f.status})
     if waiting:
-        band = lambda name: sum(1 for f in waiting if (f.observed or {}).get("triage") == name)  # noqa: E731
-        first, either, wide = band("likely_narrow"), band("measure"), band("likely_wide")
+        # Count every triaged scan doorway, as the inspector does: doorways already under 32 in are measured first too.
+        band = lambda *names: sum(1 for f in audit.findings if (f.observed or {}).get("triage") in names)  # noqa: E731
+        first, either, wide = band("narrow", "likely_narrow"), band("measure"), band("likely_wide")
         sorted_note = (f" Sorted by scan width: {first} to measure first, {either} that could go either way, "
                        f"{wide} likely wide enough.") if first + either + wide else ""
         emit(audit, "RULE_EVALUATED", "rules_evaluator",

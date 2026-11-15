@@ -340,3 +340,15 @@ def test_a_person_can_take_the_scan_width_after_looking_at_the_doorway(audit):
     assert hinged["status"] == "NUMERIC_SCREEN_FAIL" and hinged["observed"]["value"] == 31.2
 
     assert client.post(url.format("door_entrance"), json={"door": "none", "reviewed_by": "x"}).status_code == 404
+
+
+def test_doorway_sorting_note_counts_like_the_inspector(audit):
+    """The log's 'to measure first' must include doorways already under 32 in, as the workspace summary does."""
+    audit.is_synthetic = False
+    _tour(audit, [_door("a", 20.5), _door("b", 28.0), _door("c", 33.0), _door("d", 60.0)])
+    runner.step_doorways(audit)
+    runner.reevaluate(audit)
+    tri = [f.observed["triage"] for f in audit.findings if (f.observed or {}).get("triage")]
+    first = sum(t in ("narrow", "likely_narrow") for t in tri)
+    note = next(e.summary for e in audit.events if "Sorted by scan width" in e.summary)
+    assert f"{first} to measure first" in note and first >= 1

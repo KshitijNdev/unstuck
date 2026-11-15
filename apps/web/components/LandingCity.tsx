@@ -8,6 +8,7 @@
  */
 import { useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 type Style = "punched" | "band" | "glass" | "brick" | "garage";
 type Bldg = { x: number; z: number; w: number; d: number; h: number; style: Style; tone?: string; base?: number; units?: number };
@@ -18,6 +19,42 @@ const H_ROADS = [-92, -27, 30, 95];   // z of east-west streets
 const V_ROADS = [-108, -38, 38, 108]; // x of north-south streets
 const SPAN = 340;
 const PAVE = "#3b4249", WALK = "#d8d7d0", GRASS = "#a8b596", ROOF = "#cfccc3";
+// Surface heights every object is placed on, so nothing floats or sinks.
+export const ROAD_TOP = 0.03, CURB = 0.15, LOT_TOP = 0.19;
+// Crossing geometry: zebra bars cover the middle of the street; a curb ramp drops from the curb to the street at each end.
+const RAMP_RUN = 1.75, RAMP_W = 2.8, BAR_REACH = 3;
+
+/** A car resting on a surface: dark wheel/underbody block, body above it, glazed cabin on top. */
+export function carParts(x: number, z: number, r: number, base: number, color: string) {
+  return {
+    wheels: { x, z, r, w: 1.7, d: 3.5, h: 0.32, y: base + 0.16 },
+    body: { x, z, r, w: 1.85, d: 4.3, h: 0.7, y: base + 0.59, c: color },
+    cabin: { x: x - Math.sin(r) * 0.2, z: z - Math.cos(r) * 0.2, r, w: 1.6, d: 2.2, h: 0.55, y: base + 1.215 },
+  };
+}
+
+/** One merged mesh per colour for every curb ramp: a wedge from curb height down to the street, the lowest
+ *  0.6 m in detectable-warning yellow. Each entry is the curb point, the downhill direction and the ramp's width axis. */
+function rampGeometry(ramps: { x: number; z: number; dx: number; dz: number }[]) {
+  const wedge = (z0: number, z1: number) => {
+    // Triangular-section prism along local +z (downhill), width along local x, top surface on the ramp slope.
+    const y = (z: number) => CURB - (CURB - ROAD_TOP) * (z / RAMP_RUN);
+    const sh = new THREE.Shape();
+    sh.moveTo(z0, ROAD_TOP); sh.lineTo(z1, ROAD_TOP); sh.lineTo(z1, y(z1)); sh.lineTo(z0, y(z0)); sh.closePath();
+    const g = new THREE.ExtrudeGeometry(sh, { depth: RAMP_W, bevelEnabled: false });
+    g.rotateY(-Math.PI / 2);          // shape x -> world z (downhill), extrusion -> world x (width)
+    g.translate(RAMP_W / 2, 0, 0);
+    return g;
+  };
+  const place = (g: THREE.BufferGeometry, rp: (typeof ramps)[number]) => {
+    const c = g.clone();
+    c.rotateY(Math.atan2(rp.dx, rp.dz));
+    c.translate(rp.x, 0, rp.z);
+    return c;
+  };
+  const upper = wedge(0, RAMP_RUN - 0.6), lower = wedge(RAMP_RUN - 0.6, RAMP_RUN);
+  return { concrete: mergeGeometries(ramps.map((rp) => place(upper, rp))), warning: mergeGeometries(ramps.map((rp) => place(lower, rp))) };
+}
 
 /** Blocks between the streets, [x0, x1, z0, z1]; the middle one is the subject site. */
 const BLOCKS: [number, number, number, number][] = [];
@@ -154,15 +191,22 @@ const inRoad = (v: number, roads: number[]) => roads.some((r) => Math.abs(v - r)
 
 function useCityLayout() {
   return useMemo(() => {
-    const paint: Item[] = [], warn: Item[] = [], trees: Item[] = [], lights: Item[] = [], cars: Item[] = [], cabins: Item[] = [];
-    // Dashed centre lines, broken at intersections.
-    for (const z of H_ROADS) for (let x = -SPAN / 2; x < SPAN / 2; x += 9) if (!inRoad(x, V_ROADS)) paint.push({ x, z, w: 3, d: 0.18, y: 0.04, h: 0.02 });
-    for (const x of V_ROADS) for (let z = -SPAN / 2; z < SPAN / 2; z += 9) if (!inRoad(z, H_ROADS)) paint.push({ x, z, w: 0.18, d: 3, y: 0.04, h: 0.02 });
+    const paint: Item[] = [], trees: Item[] = [], lights: Item[] = [], cars: Item[] = [], cabins: Item[] = [], wheels: Item[] = [];
+    const ramps: { x: number; z: number; dx: number; dz: number }[] = [];
+    // Dashed centre lines, broken at intersections and at every crossing (a dash never runs over zebra bars).
+    const H_CROSS = [-45, -31, 31, 45, 0], V_CROSS = [-34, -20, 23, 37];  // crossing centres, matching zebra() calls below
+    const clear = (v: number, at: number[]) => at.every((c) => Math.abs(v - c) > RAMP_W / 2 + 1.6);
+    for (const z of H_ROADS) for (let x = -SPAN / 2; x < SPAN / 2; x += 9) if (!inRoad(x, V_ROADS) && (Math.abs(z) > 40 || clear(x, H_CROSS))) paint.push({ x, z, w: 3, d: 0.18, y: 0.04, h: 0.02 });
+    for (const x of V_ROADS) for (let z = -SPAN / 2; z < SPAN / 2; z += 9) if (!inRoad(z, H_ROADS) && (Math.abs(x) > 40 || clear(z, V_CROSS))) paint.push({ x, z, w: 0.18, d: 3, y: 0.04, h: 0.02 });
     // Zebra crossings on every approach of the four inner intersections, with warning strips where they meet the curb.
     // road "h" = crossing an east-west street (bars long in x, stacked across it); "v" = crossing a north-south street.
+    // Bars stop short of each curb, where a ramp leads up to the walk, so the crossing is continuous for a wheelchair.
     const zebra = (cx: number, cz: number, road: "h" | "v") => {
-      for (let k = -4; k <= 4; k++) paint.push(road === "h" ? { x: cx, z: cz + k, w: 2.8, d: 0.5, y: 0.04, h: 0.02 } : { x: cx + k, z: cz, w: 0.5, d: 2.8, y: 0.04, h: 0.02 });
-      for (const sgn of [-1, 1]) warn.push(road === "h" ? { x: cx, z: cz + sgn * 5.6, w: 2.8, d: 0.6, y: 0.16, h: 0.03 } : { x: cx + sgn * 5.6, z: cz, w: 0.6, d: 2.8, y: 0.16, h: 0.03 });
+      for (let k = -BAR_REACH; k <= BAR_REACH; k++) paint.push(road === "h" ? { x: cx, z: cz + k, w: RAMP_W, d: 0.5, y: 0.04, h: 0.02 } : { x: cx + k, z: cz, w: 0.5, d: RAMP_W, y: 0.04, h: 0.02 });
+      for (const sgn of [-1, 1]) {  // curb at the street edge, ramp running toward the street's centre line
+        if (road === "h") ramps.push({ x: cx, z: cz + sgn * ROAD / 2, dx: 0, dz: -sgn });
+        else ramps.push({ x: cx + sgn * ROAD / 2, z: cz, dx: -sgn, dz: 0 });
+      }
     };
     for (const cx of [-38, 38]) for (const cz of [-27, 30]) {
       zebra(cx - 7, cz, "h"); zebra(cx + 7, cz, "h"); zebra(cx, cz - 7, "v"); zebra(cx, cz + 7, "v");
@@ -181,7 +225,8 @@ function useCityLayout() {
         }
       };
       const i = 1.6;
-      if (!centre) { edge(x0 + i, z1 - i, x1 - i, z1 - i); edge(x0 + i, z0 + i, x1 - i, z0 + i); }
+      if (centre) continue;  // the subject block keeps Site()'s own trees and lamps; adding more would overlap them
+      edge(x0 + i, z1 - i, x1 - i, z1 - i); edge(x0 + i, z0 + i, x1 - i, z0 + i);
       edge(x0 + i, z0 + i, x0 + i, z1 - i); edge(x1 - i, z0 + i, x1 - i, z1 - i);
     }
     // The park: loose clusters, not a grid.
@@ -192,15 +237,15 @@ function useCityLayout() {
     }
     // Traffic: a few cars in lanes, parked cars in the neighbour lot.
     const palette = ["#8d969d", "#c9ccc8", "#5c6a78", "#b8b1a5", "#a4abb0", "#6f7a72", "#d6d4cd", "#7b5e57"];
-    const car = (x: number, z: number, r: number) => {
-      cars.push({ x, z, w: 1.85, d: 4.3, h: 0.7, y: 0.55, r, c: palette[Math.floor(hash(cars.length + 900) * palette.length)] });
-      cabins.push({ x, z, w: 1.6, d: 2.2, h: 0.55, y: 1.15, r });
+    const car = (x: number, z: number, r: number, base = ROAD_TOP) => {
+      const p = carParts(x, z, r, base, palette[Math.floor(hash(cars.length + 900) * palette.length)]);
+      wheels.push(p.wheels); cars.push(p.body); cabins.push(p.cabin);
     };
     let lane = 0;
     for (const z of [30, -27]) for (const x of [-125, -76, -55, 18, 61, 84, 131]) car(x, z + (lane++ % 2 ? 2.5 : -2.5), Math.PI / 2);
     for (const x of [-38, 38]) for (const z of [-72, -46, 54, 74]) car(x + (lane++ % 2 ? 2.5 : -2.5), z, 0);
-    for (const k of [0, 1, 3, 5, 6, 8]) car(-96.4 + k * 3.25, 13, 0);  // west lot, leaving the accessible stalls free
-    return { paint, warn, trees, lights, cars, cabins };
+    for (const k of [0, 1, 3, 5, 6, 8]) car(-96.375 + k * 3.25, 13, 0, LOT_TOP);  // centred in the west lot's bays
+    return { paint, trees, lights, cars, cabins, wheels, ramps };
   }, []);
 }
 
@@ -223,10 +268,11 @@ function isa() {
 export default function City() {
   const L = useCityLayout();
   const tex = useMemo(() => isa(), []);
+  const rampGeo = useMemo(() => rampGeometry(L.ramps), [L.ramps]);
   // Neighbour lot in the west block: ordinary stalls, then two accessible stalls sharing a hatched aisle (x -62.4 to -56.0).
   const lotLines = useMemo(() => {
     const out: Item[] = [];
-    for (let k = 0; k <= 9; k++) out.push({ x: -98 + k * 3.25, z: 13, w: 0.12, d: 5.2, y: 0.2, h: 0.02 });
+    for (let k = 0; k <= 10; k++) out.push({ x: -98 + k * 3.25, z: 13, w: 0.12, d: 5.2, y: 0.2, h: 0.02 });  // runs up to the accessible stalls
     for (const x of [-62.4, -59.4, -57.6, -54.6]) out.push({ x, z: 13, w: 0.12, d: 5.2, y: 0.2, h: 0.02 });
     for (let k = 0; k < 6; k++) out.push({ x: -58.5, z: 10.9 + k * 0.85, w: 2.1, d: 0.14, y: 0.2, h: 0.02, r: -0.6 });
     return out;
@@ -246,7 +292,10 @@ export default function City() {
         const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, w = x1 - x0, d = z1 - z0;
         if (x0 === -33 && z0 === -22) return (
           <group key="centre">
-            {[-31.5, 31.5].map((x) => <mesh key={x} position={[x, 0.075, 1.5]} receiveShadow><boxGeometry args={[3, 0.15, 47]} /><meshStandardMaterial color={WALK} roughness={1} /></mesh>)}
+            {/* Side walks stop where Site()'s south walk begins (z 22.3), so the two never overlap. */}
+            {[-31.5, 31.5].map((x) => <mesh key={x} position={[x, CURB / 2, 0.15]} receiveShadow><boxGeometry args={[3, CURB, 44.3]} /><meshStandardMaterial color={WALK} roughness={1} /></mesh>)}
+            {/* Planted verges between the subject lot and its side walks, instead of bare ground */}
+            {[-28.5, 28.5].map((x) => <mesh key={`g${x}`} position={[x, 0.01, 11]} receiveShadow><boxGeometry args={[3, 0.02, 22.4]} /><meshStandardMaterial color={GRASS} roughness={1} /></mesh>)}
             <mesh position={[0, 0.075, -20.5]} receiveShadow><boxGeometry args={[60, 0.15, 3]} /><meshStandardMaterial color={WALK} roughness={1} /></mesh>
           </group>
         );
@@ -273,13 +322,15 @@ export default function City() {
       ))}
       <Instances items={lotLines} color="#f1f1ec" rough={0.8} />
       <Instances items={L.paint} color="#ecebe4" rough={0.8} />
-      <Instances items={L.warn} color="#d4ae3b" rough={0.7} />
+      <mesh geometry={rampGeo.concrete} receiveShadow><meshStandardMaterial color="#cfcdc5" roughness={1} /></mesh>
+      <mesh geometry={rampGeo.warning} receiveShadow><meshStandardMaterial color="#d4ae3b" roughness={0.7} /></mesh>
       {BUILDINGS.map((b, i) => <Building key={i} b={b} />)}
       {SKYLINE.map((b, i) => <Building key={`s${i}`} b={b} shadow={false} />)}
       <Instances items={trunks} color="#7a6a58" geo="trunk" />
       <Instances items={crowns} geo="canopy" shadow rough={1} />
       <Instances items={poles} color="#5d666e" geo="trunk" />
       <Instances items={heads} color="#5d666e" />
+      <Instances items={L.wheels} color="#22282e" rough={0.8} />
       <Instances items={L.cars} shadow rough={0.45} />
       <Instances items={L.cabins} color="#46525c" rough={0.25} />
     </group>
