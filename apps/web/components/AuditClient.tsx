@@ -83,15 +83,34 @@ export function AuditClient({ id }: { id: string }) {
     }
   }, [id]);
 
+  // Load the saved audit first. A finished audit shows its results at once;
+  // the live stream is only opened while the audit is still running.
   useEffect(() => {
-    const source = new EventSource(`${API}/api/audits/${id}/events`);
-    source.addEventListener("agent_event", (msg) => {
-      const e: AgentEvent = JSON.parse((msg as MessageEvent).data);
-      setEvents((prev) => (prev.some((p) => p.seq === e.seq) ? prev : [...prev, e]));
-    });
-    source.addEventListener("done", () => { source.close(); refresh(); });
-    source.onerror = () => { source.close(); refresh(); };
-    return () => source.close();
+    let source: EventSource | null = null;
+    let cancelled = false;
+    (async () => {
+      let after = 0;
+      try {
+        const a = await getAudit(id);
+        if (cancelled) return;
+        setAudit(a);
+        setEvents(a.events);
+        if (a.status === "COMPLETE" || a.status === "FAILED") return;
+        after = a.events.length;
+      } catch (e) {
+        if (cancelled) return;
+        setError((e as Error).message);
+        return;
+      }
+      source = new EventSource(`${API}/api/audits/${id}/events?after=${after}`);
+      source.addEventListener("agent_event", (msg) => {
+        const e: AgentEvent = JSON.parse((msg as MessageEvent).data);
+        setEvents((prev) => (prev.some((p) => p.seq === e.seq) ? prev : [...prev, e]));
+      });
+      source.addEventListener("done", () => { source?.close(); refresh(); });
+      source.onerror = () => { source?.close(); refresh(); };
+    })();
+    return () => { cancelled = true; source?.close(); };
   }, [id, refresh]);
 
   const done = audit?.status === "COMPLETE" || audit?.status === "FAILED";
@@ -130,9 +149,11 @@ export function AuditClient({ id }: { id: string }) {
         <div className="bg-sheet p-5">
           <h2 id="act-h" className="font-display text-[1.8rem] font-bold leading-none">Plan</h2>
           <p className="mt-2 text-[0.95rem] text-muted">
-            {audit?.engine === "claude_agent"
-              ? "A Claude agent wrote this plan and chose each tool call. Check results come from the rule engine, not the model."
-              : "Scripted pipeline: fixed steps, no AI model involved."}
+            {!audit
+              ? "Loading the plan…"
+              : audit.engine === "claude_agent"
+                ? "A Claude agent wrote this plan and chose each tool call. Check results come from the rule engine, not the model."
+                : "Scripted pipeline: fixed steps, no AI model involved."}
           </p>
           <ol className="mt-4 space-y-2">
             <AnimatePresence initial={false}>
