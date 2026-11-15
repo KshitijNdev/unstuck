@@ -4,7 +4,9 @@ Accessibility screening for commercial buildings. Unstuck pulls the property rec
 
 > **Screening, not certification.** Unstuck is not a certified ADA inspection or a legal compliance determination, and does not replace a California CASp, a Texas RAS, a qualified accessibility consultant or field measurements. It never calls an unmeasured guess a violation.
 
-Built at HackPrinceton Fall 2026 (CoStar "Inside and Out" track).
+**Live: https://tryunstuck.us**
+
+Built at HackPrinceton Fall 2026 (Business & Enterprise track; CoStar "Inside and Out" sponsor track).
 
 ## Who it is for
 
@@ -15,7 +17,7 @@ A commercial landlord or property manager who wants to know where accessibility 
 1. **Pick a property.** Search 541 non-residential buildings in Houston and Los Angeles that have both a CoStar record and a Matterport scan.
 2. **Gather evidence.** A LangChain Deep Agent plans the audit and delegates to three subagents. The property investigator looks up the CoStar record (use type, year built, parking counts). The exterior inspector fetches a Vexcel orthophoto of the site. The interior inspector compares the linked Matterport scans, loads one and measures its doorway openings from the floor plan. The orchestrator then checks that the scan sits where CoStar says the building is.
 3. **Screen.** A pure-Python rule engine compares structured measurements against the standards. No language model does any arithmetic.
-4. **Ask a person for what it cannot know.** You mark accessible stalls directly on the aerial image, or enter a door width measured on site or in the 3D tour. The checks re-run immediately.
+4. **Ask a person for what it cannot know.** You mark accessible stalls directly on the aerial image, or let Gemini suggest them and accept or reject each one. You can also enter a door width measured on site or in the 3D tour. The checks re-run immediately.
 5. **Report.** A printable action plan groups results into act on, measure next, and meets threshold, with a JSON export and a full audit trail.
 6. **Measure on site.** A one-page field checklist lists what still needs a tape measure, in a visitor's order from the lot to the door and inside, narrowest scan doorways first. Print it, or scan its QR code and enter readings on a phone; each reading re-runs the check.
 7. **Triage a portfolio.** For every CoStar building, or one owner's, a sortable list shows the Table 208.2 stall minimum for the recorded lot, year built and scan coverage, ordered by what most needs measuring. No AI calls.
@@ -40,10 +42,11 @@ Missing or unverified inputs return "needs field measurement". Nothing is defaul
 | Piece | State |
 |---|---|
 | CoStar property record and Matterport crosswalk | Real, from the hackathon data extract |
-| Vexcel orthophoto | Real, fetched live through the API (key stays server-side) |
+| Vexcel orthophoto | Real, fetched live through the API (key stays server-side). The hackathon key is geofenced to Los Angeles, Houston, Northern California, the Florida Panhandle and the Princeton campus; outside those the app does not call Vexcel and uses the public USGS image, labelled as such |
 | Matterport model identity, rooms, tour embed | Real, fetched live |
-| Accessible stall counts | Entered by a person marking the image. Not detected automatically |
-| Doorway openings | Real, read live from the Matterport floor plan (`floors.edges.openings`, type `doorway`) when the scan has one: 32 of 80 sampled scans did. An opening is the frame gap, so it can flag a narrow doorway but never pass one |
+| Accessible stall counts | Counted by a person. Gemini can suggest stalls on the aerial image, but a suggestion only counts once a person accepts it. Low-confidence guesses are dropped |
+| AI on sponsor imagery | Vexcel imagery is sent to Gemini only when the server sets `VEXCEL_ALLOW_AI_PROCESSING=1`. It is off by default and was switched on for the live site after Vexcel approved it at the event. Public USGS imagery can always be analysed |
+| Doorway openings | Real, read live from the Matterport floor plan (`floors.edges.openings`, type `doorway`) when the scan has one: 32 of 80 sampled scans did. An opening is the frame gap, so it can flag a narrow doorway but never pass one. Where the scan has a 3D mesh, the gap at each doorway is also measured from the mesh; a smaller gap means a door leaf or object was in the opening during the scan |
 | Door clear width | Entered by a person (tape on site, or the tour's measurement tool). Replaces the scan opening for that door |
 | Total parking | CoStar's property-wide surface count, flagged because §208.2 applies per lot |
 | Agent | **LangChain Deep Agent** (`deepagents` on LangGraph) with Claude (`claude-opus-5-5`) as the model through `langchain-anthropic`, when `ANTHROPIC_API_KEY` is set. An orchestrator writes the plan and delegates with the `task` tool to three subagents: property investigator, exterior inspector and interior inspector. The interior inspector compares linked scans, prefers one with a floor plan and public areas, and measures its doorways. The agents cannot create findings, and the summary is rejected if it uses legal words like "compliant" or "violation". Without a key, or if the Deep Agent fails mid-audit, a fixed scripted pipeline (no AI) runs the same steps |
@@ -81,9 +84,23 @@ Copy `.env.example` to `services/api/.env` and fill in the values from `/costar-
 - `MATTERPORT_API_KEY`, `MATTERPORT_API_TOKEN`
 - `VEXCEL_API_KEY`
 - `COSTAR_KIT_DIR`: path to the unzipped CoStar kit (the folder containing `data/commercial-property.jsonl`)
+- `MATTERPORT_SDK_KEY` (optional): click-to-measure inside the 3D tour. Without it the plain tour is shown
 - `ANTHROPIC_API_KEY` (optional): turns on the Deep Agent. `UNSTUCK_MODEL` overrides the model; `UNSTUCK_AGENT=off` forces the scripted pipeline
+- `GOOGLE_API_KEY` (optional): turns on Gemini stall suggestions. `UNSTUCK_GEMINI=off` disables them
+- `VEXCEL_ALLOW_AI_PROCESSING=1` (optional): lets Vexcel imagery be sent to Gemini. Set it only with Vexcel's permission
+- `WEB_ORIGINS` (optional): comma-separated origins allowed to call the API; defaults to localhost:3000
 
 `.env` and `data/` are gitignored. Sponsor data is for hackathon use only and is never committed.
+
+### Deploy
+
+The live site runs on one Vultr server: Caddy (automatic HTTPS) in front of the Next.js app on port 3000 and the API on port 8000, both as systemd services. The configs are in `deploy/`. To ship the latest `main`:
+
+```bash
+ssh root@<server> 'bash /opt/unstuck/deploy/update.sh'
+```
+
+Deploy only through git. Copying files onto the server by hand blocks the next pull.
 
 ## How it is built
 
@@ -91,12 +108,14 @@ Copy `.env.example` to `services/api/.env` and fill in the values from `/costar-
 apps/web        Next.js 16 + Tailwind: property picker, live audit view, evidence, checks, report
 services/api    FastAPI
   app/rules       ada2010.py: deterministic checks, each with a citation
-  app/providers   costar, vexcel, matterport, usgs (public fallback), fixture (synthetic)
+  app/providers   costar, vexcel (with geofence), matterport, scanmesh (doorway gaps from the mesh), usgs (public fallback), fixture (synthetic)
   app/agents      orchestrator.py: LangChain Deep Agent (deepagents) with three subagents over the same steps
+  app/vision      gemini.py: stall suggestions on aerial imagery, for a person to accept
   app/pipeline    runner.py (shared steps, scripted fallback, event log), evaluate.py (measurements -> findings)
   app/routes      audits, events (SSE), measurements, image marks, review, export, featured + copy, portfolio
   app/portfolio.py  portfolio triage: Table 208.2 minimums and the measuring order, no provider calls
   tests           143 tests: every threshold boundary, missing-data behaviour, API contracts, the Deep Agent graph with a scripted model, doorway screening, token accounting, featured copies, portfolio triage
+deploy          Caddyfile, systemd units, update.sh
 docs/HANDOFF.md Full product and engineering brief
 ```
 
@@ -137,9 +156,18 @@ Automated tools catch only part of WCAG, and no screen-reader user has tested th
 
 ## Next
 
-- Vision-proposed stall candidates on the Vexcel image, confirmed by a person
+- Slope and route checks from elevation data
+- City-specific permit guidance for each fix
 - Vexcel oblique views and object detection
 - Owner names in the portfolio view, from a source that has them
+
+## Built with
+
+- **Backend:** Python 3.12, FastAPI, Uvicorn, Pydantic, httpx, Pillow, NumPy, SQLite, pytest, uv
+- **AI:** LangChain `deepagents` on LangGraph, `langchain-anthropic` with Claude Opus 5.5, Google Gemini (`google-genai`)
+- **Frontend:** Next.js 16, React 19, TypeScript, Tailwind CSS 4, Motion, Three.js with React Three Fiber, Barlow fonts (Fontsource)
+- **Data:** CoStar hackathon extract, Vexcel imagery API, Matterport Model API and Showcase SDK, USGS NAIP imagery
+- **Hosting:** Vultr, Caddy, Let's Encrypt
 
 ## Sources
 
