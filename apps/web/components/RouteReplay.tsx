@@ -67,7 +67,7 @@ function buildStops(findings: Finding[]): Stop[] {
 const MOVE_S = 1.1;
 const DWELL_MS = 2300;
 
-export function RouteReplay({ findings }: { findings: Finding[] }) {
+export function RouteReplay({ findings, compact = false }: { findings: Finding[]; compact?: boolean }) {
   const reduce = useReducedMotion();
   const stops = buildStops(findings);
   // -1 = at the kerb, not started. stops.length = finished.
@@ -85,7 +85,9 @@ export function RouteReplay({ findings }: { findings: Finding[] }) {
     return () => clearTimeout(t);
   }, [playing, at, stops.length, reduce]);
 
-  if (stops.length === 0) return null;
+  if (stops.length === 0) {
+    return compact ? <p className="p-5 text-muted">This audit has no parking or door checks to replay.</p> : null;
+  }
 
   const finished = at >= stops.length;
   const current = at >= 0 && !finished ? stops[at] : null;
@@ -111,7 +113,7 @@ export function RouteReplay({ findings }: { findings: Finding[] }) {
         : "Nothing on this trip is below its threshold.";
 
   return (
-    <div className="sheet grid gap-px bg-line lg:grid-cols-[1.25fr_1fr]">
+    <div className={compact ? "grid gap-px bg-line" : "sheet grid gap-px bg-line lg:grid-cols-[1.25fr_1fr]"}>
       <div className="bg-sheet p-5">
         <svg viewBox={`0 0 ${W} ${H}`} className="block h-auto w-full" role="img"
           aria-label={`Diagram of an arrival by wheelchair in ${stops.length} steps. ${verdict}`}>

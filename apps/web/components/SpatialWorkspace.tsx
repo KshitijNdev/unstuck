@@ -7,6 +7,7 @@ import { aerialSources, layerOf, SpatialStage, type Layer } from "@/components/S
 import { SuggestionsPanel } from "@/components/SuggestionsPanel";
 import { StatusBadge } from "@/components/ui";
 import { startAnalysis, type Audit, type Finding } from "@/lib/api";
+import { RouteReplay } from "@/components/RouteReplay";
 
 type Filter = "all" | "below" | "review" | "meets";
 const FILTERS: { id: Filter; label: string; test: (f: Finding) => boolean }[] = [
@@ -15,7 +16,7 @@ const FILTERS: { id: Filter; label: string; test: (f: Finding) => boolean }[] = 
   { id: "review", label: "Needs a person", test: (f) => f.label !== "measured" },
   { id: "meets", label: "Meets", test: (f) => f.status === "NUMERIC_SCREEN_PASS" },
 ];
-type Tab = "checks" | "suggestions" | "log";
+type Tab = "checks" | "suggestions" | "log" | "trip";
 const REVIEWER_KEY = "unstuck.reviewer";
 const INSET = 440 + 16 * 2;  // floating inspector width plus its margins
 
@@ -120,6 +121,7 @@ export function SpatialWorkspace({ audit, auditId, selected, onSelect, onChanged
     { id: "checks", label: "Findings", badge: audit.findings.length },
     { id: "suggestions", label: "AI review", badge: pending || undefined },
     { id: "log", label: "Activity" },
+    { id: "trip", label: "Trip" },
   ];
 
   return (
@@ -190,6 +192,11 @@ export function SpatialWorkspace({ audit, auditId, selected, onSelect, onChanged
         </div>
 
         <div id="sw-log" role="tabpanel" hidden={tab !== "log"} className="sw-tabpanel sw-log">{log}</div>
+
+        <div id="sw-trip" role="tabpanel" hidden={tab !== "trip"} className="sw-tabpanel">
+          {/* Mounted only while open so the replay starts from the kerb each time. */}
+          {tab === "trip" && <RouteReplay findings={audit.findings} compact />}
+        </div>
       </aside>
     </section>
   );
