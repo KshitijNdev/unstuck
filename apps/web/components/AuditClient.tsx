@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { EvidenceView } from "@/components/EvidenceView";
 import { FindingCard } from "@/components/FindingCard";
+import { RouteReplay } from "@/components/RouteReplay";
 import { CoverageCards, ErrorNote, SyntheticBanner } from "@/components/ui";
 import { API, getAudit, type AgentEvent, type Audit } from "@/lib/api";
 
@@ -214,6 +215,12 @@ export function AuditClient({ id }: { id: string }) {
 
       {done && audit && (
         <>
+          <section aria-labelledby="trip-h">
+            <h2 id="trip-h" className="font-display text-[2.2rem] font-bold leading-none">The trip in</h2>
+            <p className="mb-4 mt-2 text-muted">The same checks, in the order a wheelchair user meets them.</p>
+            <RouteReplay findings={audit.findings} />
+          </section>
+
           <section aria-labelledby="ev-h">
             <h2 id="ev-h" className="font-display text-[2.2rem] font-bold leading-none">Evidence</h2>
             <p className="mb-4 mt-2 text-muted">
