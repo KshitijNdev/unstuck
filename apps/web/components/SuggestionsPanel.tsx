@@ -5,7 +5,7 @@ import { ErrorNote } from "@/components/ui";
 import { applyCandidates, CATEGORY_LABEL, reviewCandidate, type AiRun, type Candidate, type CandidateCategory,
   type Evidence } from "@/lib/api";
 
-const STATUS_TEXT = { suggested: "AI suggestion", accepted: "Accepted", rejected: "Rejected" } as const;
+const STATUS_TEXT = { suggested: "AI suggestion, not yet verified", accepted: "Confirmed", rejected: "Rejected" } as const;
 type Act = { action: "accept" | "reject" | "relabel" | "reset"; category?: CandidateCategory; van?: boolean };
 
 function Row({ c, on, onFocus, act, busy }: { c: Candidate; on: boolean; onFocus: () => void; busy: boolean; act: (body: Act) => void }) {
@@ -77,7 +77,7 @@ export function SuggestionsPanel({ auditId, site, run, reviewer, setReviewer, fo
     try {
       await applyCandidates(auditId, site.id, reviewer.trim());
       await onChanged();
-      setNote(`Counted ${stalls.length} accepted stall${stalls.length === 1 ? "" : "s"}. The parking checks were re-run.`);
+      setNote(`Counted ${stalls.length} accepted stall${stalls.length === 1 ? "" : "s"}. The parking checks were updated.`);
     } catch (e) { setErr((e as Error).message); }
     finally { setBusy(false); }
   }
@@ -135,7 +135,7 @@ export function SuggestionsPanel({ auditId, site, run, reviewer, setReviewer, fo
         <ul className="sg-list">
           {groups.map(([s, list]) => list.length > 0 && (
             <li key={s} className="sg-group">
-              <h4>{s === "suggested" ? `To review (${list.length})` : `Accepted (${list.length})`}</h4>
+              <h4>{s === "suggested" ? `To review (${list.length})` : `Confirmed (${list.length})`}</h4>
               <ul>{list.map(row)}</ul>
             </li>
           ))}
@@ -156,9 +156,9 @@ export function SuggestionsPanel({ auditId, site, run, reviewer, setReviewer, fo
           {candidates.length > 0 && (
             <>
               <button className="btn btn-primary btn-sm" disabled={busy || (stalls.length === 0 && counted === 0)} onClick={apply}>
-                Count {stalls.length} accepted stall{stalls.length === 1 ? "" : "s"}
+                Count {stalls.length} confirmed stall{stalls.length === 1 ? "" : "s"}
               </button>
-              <p>Only accepted accessible stalls become counts. Symbols, aisles and ramps stay as supporting evidence.</p>
+              <p>Only confirmed accessible stalls become counts. Symbols, aisles and ramps stay as supporting evidence.</p>
             </>
           )}
           <details>

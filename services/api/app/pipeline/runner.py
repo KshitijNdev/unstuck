@@ -254,6 +254,7 @@ def step_doorways(audit: Audit, actor: str = "interior_inspector") -> dict:
         did = "scan_door_" + "".join(ch for ch in f"{model_id}_{d['opening_id']}" if ch.isalnum() or ch == "_")[:60]
         prop.doors.append(Door(id=did, label=f"Scan doorway {i}, {d['floor']} ({d['kind']})", priority=2,
                                source="matterport_floorplan", model_id=model_id))
+        d["door_id"] = did  # lets the workspace find this doorway on the drawn floor plan
         note = f"Matterport floor-plan opening {d['opening_id']} in scan {model_id}. Frame gap, not clear width."
         if d["width_in"] is not None:
             audit.measurements.append(Measurement(
@@ -348,14 +349,18 @@ def reevaluate(audit: Audit, announce: bool = False) -> None:
         emit(audit, "RULE_EVALUATED", "rules_evaluator", f"{f.title} at {f.location}: {f.status}.",
              tool="ada2010", payload={"required": f.required, "observed": f.observed, "status": f.status})
     if waiting:
+        band = lambda name: sum(1 for f in waiting if (f.observed or {}).get("triage") == name)  # noqa: E731
+        first, either, wide = band("likely_narrow"), band("measure"), band("likely_wide")
+        sorted_note = (f" Sorted by scan width: {first} to measure first, {either} that could go either way, "
+                       f"{wide} likely wide enough.") if first + either + wide else ""
         emit(audit, "RULE_EVALUATED", "rules_evaluator",
-             f"Door clear opening width at {len(waiting)} other scan doorway(s): needs measurement "
-             "(a floor-plan opening cannot pass a door).", tool="ada2010",
+             f"Clear door width at {len(waiting)} other scan doorway(s): needs measurement "
+             f"(a floor-plan opening cannot pass a door).{sorted_note}", tool="ada2010",
              payload=[{"location": f.location, "status": f.status, "observed": f.observed} for f in waiting])
     if announce:
         pending = [f for f in audit.findings if f.label != "measured"]
         if pending:
-            emit(audit, "REVIEW_REQUESTED", "orchestrator", f"{len(pending)} check(s) need a person: measurements missing or unverified.")
+            emit(audit, "REVIEW_REQUESTED", "orchestrator", f"{len(pending)} check(s) need review: measurements are missing or unverified.")
     store.save(audit)
 
 

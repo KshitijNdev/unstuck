@@ -4,8 +4,11 @@ import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SpatialWorkspace } from "@/components/SpatialWorkspace";
+import { AgentExplainer } from "@/components/AgentExplainer";
+import { AnalysisView, engineLabel } from "@/components/AnalysisView";
 import { IntegrationsPanel } from "@/components/IntegrationsPanel";
-import { ErrorNote } from "@/components/ui";
+import { RouteReplay } from "@/components/RouteReplay";
+import { builtBeforeAda, ErrorNote } from "@/components/ui";
 import { API, getAudit, type AgentEvent, type Audit } from "@/lib/api";
 
 const EVENT_ICON: Record<string, string> = {
@@ -72,6 +75,8 @@ export function AuditClient({ id }: { id: string }) {
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showAv, setShowAv] = useState(false);
+  const closeAv = useCallback(() => setShowAv(false), []);
   const [showIg, setShowIg] = useState(false);
   const igRef = useRef<HTMLDivElement>(null);
 
@@ -169,8 +174,19 @@ export function AuditClient({ id }: { id: string }) {
           <figcaption>Summary written by the AI agent. Check it against the results.</figcaption>
         </figure>
       )}
+      {audit.findings.length > 0 && (
+        <section>
+          <h3>Trip replay</h3>
+          <p className="lg-sub">A visitor’s trip from the parking lot to the door, stopping at each check on the way.</p>
+          <div className="lg-replay"><RouteReplay findings={audit.findings} /></div>
+        </section>
+      )}
       <section><h3>Plan</h3>{plan}</section>
-      <section><h3>Activity</h3><Timeline events={events} running={false} /></section>
+      <section><h3>Agent activity</h3><Timeline events={events} running={false} /></section>
+      <details className="lg-explainer">
+        <summary>How the Deep Agent works</summary>
+        <AgentExplainer />
+      </details>
       <section>
         <h3>Data sources</h3>
         <ul className="lg-sources">
@@ -214,6 +230,18 @@ export function AuditClient({ id }: { id: string }) {
         <div className="au-actions">
           {audit?.is_synthetic && <span className="au-chip" title="This property does not exist and no value was observed at a real building.">Synthetic demo data</span>}
           {audit?.status === "FAILED" && <span className="au-chip bad">Audit stopped early</span>}
+          {builtBeforeAda(audit?.property.year_built) && (
+            <span className="au-chip ctx" title="Context only, not a finding. Details are on the Property record layer and in the action plan.">
+              Context: built before the ADA
+            </span>
+          )}
+          {audit && (
+            <span className={`au-chip ${audit.engine === "deep_agent" ? "ok" : ""}`}
+              title={audit.engine === "deep_agent" ? "LangChain Deep Agents planned this audit." : "No AI model planned this audit; the fixed scripted pipeline ran the same steps."}>
+              Engine: {engineLabel(audit)}
+            </span>
+          )}
+          {audit && <button type="button" className="btn btn-sm" onClick={() => setShowAv(true)}>Analysis &amp; evidence</button>}
           <div className="au-ig" ref={igRef}>
             <button type="button" className="btn btn-sm" aria-expanded={showIg} aria-controls="au-ig-panel" onClick={() => setShowIg(!showIg)}>
               Integrations &amp; AI
@@ -228,6 +256,10 @@ export function AuditClient({ id }: { id: string }) {
         </div>
       </header>
       {error && <div className="au-err"><ErrorNote message={error} /></div>}
+      {audit && showAv && (
+        <AnalysisView audit={audit} events={events} onClose={closeAv}
+          onOpenFinding={(fid) => { setSelectedId(fid); setShowAv(false); }} />
+      )}
       {audit && (
         <SpatialWorkspace audit={audit} auditId={id} selected={selected ?? audit.findings[0] ?? null}
           onSelect={setSelectedId} onChanged={refresh} log={log} />

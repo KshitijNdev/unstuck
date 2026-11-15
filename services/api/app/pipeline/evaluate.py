@@ -103,7 +103,10 @@ def evaluate(audit: Audit) -> list[Finding]:
             # Only the scan's frame opening is known: it can raise suspicion, never pass the door.
             wall = ms.get("door_wall_thickness_in")
             result = rules.screen_doorway_opening(opening.value, wall.value if wall else None)
-            findings.append(_finding(audit, result, door.id, door.label, door.priority, opening.method, evidence, previous))
+            # Doorways the scan shows comfortably wide drop below the rest; nothing is passed.
+            likely_wide = (result.observed or {}).get("triage") == "likely_wide"
+            findings.append(_finding(audit, result, door.id, door.label, door.priority + 1 if likely_wide else door.priority,
+                                     opening.method, evidence, previous))
             continue
         method = _weakest([m for m in (width, depth) if m])
         result = rules.check_door(width.value if width else None, depth.value if depth else None,

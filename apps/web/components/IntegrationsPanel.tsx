@@ -37,7 +37,7 @@ function auditFacts(audit: Audit, p: Integration["provider"]): string {
       return `${e.provider}: ${c.length} suggestion${c.length === 1 ? "" : "s"}, ${c.filter((x) => x.status === "accepted").length} accepted`;
     }).join(". ");
   }
-  return audit.engine === "claude_agent" ? "This audit was planned by the Claude agent" : "This audit ran on the scripted pipeline";
+  return audit.engine === "deep_agent" ? "This audit was planned by LangChain Deep Agents" : "This audit ran on the scripted pipeline";
 }
 
 export function IntegrationsPanel({ audit }: { audit?: Audit }) {

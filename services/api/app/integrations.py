@@ -43,9 +43,9 @@ def integrations() -> list[dict]:
          "checked_at": None, "check_detail": None, "record_count": len(rows)},
         _row("vexcel", "Aerial imagery", bool(vexcel._key()),
              f"Orthophoto extract, hackathon geofence: {vexcel.REGIONS}. Not sent to AI services." if vexcel._key()
-             else "No VEXCEL_API_KEY set."),
+             else "No VEXCEL_API_KEY set.", ai_permitted=os.environ.get("VEXCEL_ALLOW_AI_PROCESSING") == "1"),
         _row("matterport", "3D interior", matterport._auth() is not None,
-             "Model identity, rooms and tour. Door openings are not in the wall graph, so clear widths need a tape measure."
+             "Model identity, rooms, tour and floor-plan door openings. Openings are frame gaps, not clear widths, so doors still need a tape measure."
              if matterport._auth() else "No MATTERPORT_API_KEY / MATTERPORT_API_TOKEN set."),
         _row("gemini", "Image suggestions", gemini.configured(),
              "Suggests parking features on permitted imagery. Suggestions wait for a person." if gemini.configured()
@@ -74,14 +74,30 @@ async def _probe(provider: str) -> str:
     if provider == "gemini":
         from google import genai
         from .vision import gemini
-        m = await genai.Client(api_key=os.environ["GEMINI_API_KEY"]).aio.models.get(model=gemini.model_name())
-        return f"{m.name} is available to this key (metadata only, no generation)"
+        # A one-token generation: model metadata answers even when the key's generation quota is spent.
+        r = await genai.Client(api_key=os.environ["GEMINI_API_KEY"]).aio.models.generate_content(
+            model=gemini.model_name(), contents="Reply with OK.", config={"max_output_tokens": 1})
+        return f"{gemini.model_name()} generated a reply ({(r.usage_metadata and r.usage_metadata.total_token_count) or 'few'} tokens)"
     if provider == "claude":
         import anthropic
         from .agents import orchestrator
         m = await anthropic.AsyncAnthropic().models.retrieve(orchestrator.model_name())
         return f"{m.id} is available to this key"
     raise ValueError(provider)
+
+
+def failure_note(e: Exception) -> str:
+    """Name the failure without echoing the provider's message, which may include request data."""
+    code = getattr(e, "code", None) or getattr(e, "status_code", None)
+    if code == 429:
+        return "Check failed: quota or rate limit reached (HTTP 429)"
+    if code in (401, 403):
+        return f"Check failed: the key was refused (HTTP {code})"
+    if code == 404:
+        return "Check failed: this key cannot use the configured model (HTTP 404)"
+    if isinstance(e, asyncio.TimeoutError):
+        return "Check failed: no answer within 45 seconds"
+    return f"Check failed ({type(e).__name__})"
 
 
 async def check(provider: str) -> dict:
@@ -92,5 +108,5 @@ async def check(provider: str) -> dict:
         note = await asyncio.wait_for(_probe(provider), timeout=45)
         LAST[provider] = {"state": "verified", "detail": note, "checked_at": now_iso()}
     except Exception as e:  # noqa: BLE001 - the failure class is the useful signal; messages may echo request data
-        LAST[provider] = {"state": "failed", "detail": f"Check failed ({type(e).__name__})", "checked_at": now_iso()}
+        LAST[provider] = {"state": "failed", "detail": failure_note(e), "checked_at": now_iso()}
     return next(r for r in integrations() if r["provider"] == provider)

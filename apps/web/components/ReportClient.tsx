@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { RouteReplay } from "@/components/RouteReplay";
 import { useEffect, useState } from "react";
-import { ErrorNote, StatusBadge, SyntheticBanner } from "@/components/ui";
+import { placeLabel } from "@/components/FindingCard";
+import { builtBeforeAda, ErrorNote, PreAdaNote, StatusBadge, SyntheticBanner } from "@/components/ui";
 import { API, CONFIDENCE, getAudit, type Audit, type Finding } from "@/lib/api";
 
 const GROUPS: { id: string; title: string; blurb: string; tone: string; pick: (f: Finding) => boolean }[] = [
@@ -15,7 +16,7 @@ const GROUPS: { id: string; title: string; blurb: string; tone: string; pick: (f
     pick: (f) => f.status === "NUMERIC_SCREEN_PASS" },
 ];
 
-const fmt = (v: { value: number; unit: string } | null) => (v ? `${v.value} ${v.unit}` : "not recorded");
+const fmt = (v: { value: number; unit: string } | null) => (v ? `${v.value} ${v.value === 1 ? v.unit.replace(/spaces$/, "space") : v.unit}` : "not recorded");
 const day = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleString() : "");
 
 function FindingDetail({ f, audit }: { f: Finding; audit: Audit }) {
@@ -25,19 +26,21 @@ function FindingDetail({ f, audit }: { f: Finding; audit: Audit }) {
   return (
     <li className="rp-finding" id={f.id}>
       <div className="rp-finding-head">
-        <h4>{f.title}<span>{f.location}</span></h4>
+        <h3>{f.title}<span>{placeLabel(f.location)}</span></h3>
         <StatusBadge status={f.status} />
       </div>
       <dl className="rp-grid">
         <div><dt>Requirement</dt><dd>{f.required ? `At least ${fmt(f.required)}` : "Not determined"}</dd></div>
-        <div><dt>Observed</dt><dd>{fmt(f.observed)}</dd></div>
+        {f.observed?.method === "scan_floorplan"
+          ? <div><dt>Frame opening (scan)</dt><dd>{fmt(f.observed)}. Clear width not verified</dd></div>
+          : <div><dt>Observed</dt><dd>{fmt(f.observed)}</dd></div>}
         <div><dt>Basis</dt><dd>{CONFIDENCE[f.confidence] ?? f.confidence}</dd></div>
         <div><dt>Review</dt><dd>{f.review_status.replaceAll("_", " ").toLowerCase()}{f.reviewed_by ? ` by ${f.reviewed_by}` : ""}</dd></div>
       </dl>
       <p><strong>Next step:</strong> {f.followup}</p>
       {measured.length > 0 && (
         <div className="rp-sub">
-          <h5>Measurements</h5>
+          <h4>Measurements</h4>
           <ul>
             {measured.map((m) => (
               <li key={m.id}>
@@ -86,6 +89,7 @@ export function ReportClient({ id }: { id: string }) {
             </p>
           </header>
           {audit.is_synthetic && <SyntheticBanner />}
+          {builtBeforeAda(audit.property.year_built) && <PreAdaNote year={audit.property.year_built} />}
 
           <section className="rp-outcome" aria-label="Outcome">
             {GROUPS.map((g) => {
@@ -94,7 +98,14 @@ export function ReportClient({ id }: { id: string }) {
                 <div key={g.id} className={`rp-col ${g.tone}`}>
                   <p className="rp-col-head"><b>{items.length}</b>{g.title}</p>
                   <p className="rp-col-blurb">{g.blurb}</p>
-                  <ul>{items.map((f) => <li key={f.id}><a href={`#${f.id}`}>{f.title}, {f.location}</a></li>)}</ul>
+                  {Object.entries(Object.groupBy(items, (f) => f.title)).map(([title, fs]) => fs!.length > 3 ? (
+                    <details key={title} className="rp-col-group">
+                      <summary>{title} <span>{fs!.length}</span></summary>
+                      <ul>{fs!.map((f) => <li key={f.id}><a href={`#${f.id}`}>{placeLabel(f.location)}</a></li>)}</ul>
+                    </details>
+                  ) : (
+                    <ul key={title}>{fs!.map((f) => <li key={f.id}><a href={`#${f.id}`}>{f.title}, {placeLabel(f.location)}</a></li>)}</ul>
+                  ))}
                 </div>
               );
             })}
@@ -111,7 +122,7 @@ export function ReportClient({ id }: { id: string }) {
           })}
         </div>
 
-        <aside className="rp-side">
+        <section className="rp-side" aria-label="About this report">
           <section className="rp-note">
             <h3>What this is</h3>
             <p>A screening of selected dimensions from the 2010 ADA Standards, with the evidence behind each check. Not a certified
@@ -165,7 +176,7 @@ export function ReportClient({ id }: { id: string }) {
               {audit.data_availability.filter((s) => s.state === "unavailable").map((s) => <li key={s.provider}>{s.provider}: unavailable.</li>)}
             </ul>
           </section>
-        </aside>
+        </section>
       </div>
       <section id="trip-replay" className="mt-10 border-t border-line pt-8" aria-labelledby="trip-replay-heading">
         <h2 id="trip-replay-heading" className="font-display text-[1.9rem] font-bold leading-none">The trip in</h2>

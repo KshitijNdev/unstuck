@@ -203,6 +203,10 @@ def test_scan_doorways_become_door_checks(audit):
     assert scan["Scan doorway 3, Floor 1 (door-pivot)"].status == "INSUFFICIENT_DATA"
     assert not any(f.status in ("NUMERIC_SCREEN_PASS", "NUMERIC_SCREEN_FAIL") for f in scan.values()), \
         "a frame opening never passes or fails a door"
+    # Each scan doorway names the model it came from, so the workspace can open that scan.
+    doors = {d.id: d for d in audit.property.doors}
+    assert all(doors[f.location_id].model_id for f in scan.values())
+    assert all(f.observed["measures"].startswith("doorway opening") for f in scan.values() if f.observed)
 
 
 def test_a_tape_measurement_overrides_the_scan_opening(audit):
@@ -229,3 +233,15 @@ def test_switching_scans_replaces_the_doorways(audit):
     assert out["measured"] == 0
     assert not [d for d in audit.property.doors if d.source == "matterport_floorplan"]
     assert not [m for m in audit.measurements if m.method == "scan_floorplan"]
+
+
+def test_scan_doorway_position_comes_from_the_wall_it_sits_in():
+    from app.providers import matterport
+    wall = {"thickness": 0.15, "vertices": [{"position": {"x": 0, "y": 0}}, {"position": {"x": 4, "y": 2}}],
+            "openings": [{"id": "o1", "type": "doorway", "label": "door-pivot", "width": 0.8, "relativeCenter": 0.25},
+                         {"id": "o2", "type": "doorway", "width": 0.9, "relativeCenter": None}]}
+    model = {"floors": [{"label": "Floor 1", "edges": [wall, {"vertices": [{"position": {"x": 1}}]}]}]}
+    by_id = {d["opening_id"]: d for d in matterport.doorways(model)}
+    assert by_id["o1"]["center"] == [1.0, 0.5]
+    assert by_id["o2"]["center"] is None, "no relativeCenter means no position, never a guess"
+    assert matterport.floor_plan(model) == {"Floor 1": [[0, 0, 4, 2]]}   # the vertex-less edge is skipped

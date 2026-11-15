@@ -16,6 +16,10 @@ from ..models import Evidence, SourceStatus, now_iso
 from .usgs import bbox
 
 URL = "https://api.vexcelgroup.com/v2/ortho/extract"
+PROPERTY_URL = "https://api.vexcelgroup.com/v2/property/extract"
+DEFAULT_LAYERS = "urban,urban-r,wide-area,urban-g"
+# Capture metadata per site, so later image fetches use the same layer the date belongs to.
+_META: dict[tuple[float, float], dict] = {}
 HALF_SIZE_M = 70.0
 IMAGE_PX = 1400
 
@@ -66,24 +70,65 @@ def status() -> SourceStatus:
         return SourceStatus(provider="Vexcel", layer="aerial", state="unavailable", is_sponsor_source=True,
                             detail="No VEXCEL_API_KEY set. Get one with /costar-keys in the track Discord.")
     return SourceStatus(provider="Vexcel", layer="aerial", state="connected", is_sponsor_source=True,
-                        detail=f"Orthophoto extract working inside the hackathon geofence ({REGIONS}). Capture date is not retrieved yet.",
+                        detail=f"Orthophoto extract working inside the hackathon geofence ({REGIONS}). Capture date is Vexcel's estimate "
+                               "from parcel metadata, when Vexcel has a parcel at the site.",
                         features=["orthophoto about 7.5 cm/pixel"])
 
 
-def _body(lat: float, lon: float) -> dict:
+def _body(lat: float, lon: float, layer: str = DEFAULT_LAYERS) -> dict:
     xmin, ymin, xmax, ymax = bbox(lat, lon, HALF_SIZE_M)
     wkt = f"POLYGON(({xmin} {ymin},{xmax} {ymin},{xmax} {ymax},{xmin} {ymax},{xmin} {ymin}))"
-    return {"wkt": wkt, "srid": 4326, "layer": "urban,urban-r,wide-area,urban-g", "crop": "bounding_box",
+    return {"wkt": wkt, "srid": 4326, "layer": layer, "crop": "bounding_box",
             "image-format": "jpeg", "destination-dimensions": f"{IMAGE_PX},{IMAGE_PX}", "attribution": "false"}
 
 
+async def capture_metadata(client: httpx.AsyncClient, lat: float, lon: float) -> dict | None:
+    """Vexcel's estimated ortho capture date, collection and layer for the parcel at a point, or None.
+
+    From GET property/extract (latest=true): the flat keys metadata.ortho-date-estimate, .collection and .layer-name. A 404 means
+    Vexcel has no parcel there, so no date is known. Never raises: a missing date must not stop the image.
+    """
+    key = _key()
+    if not key:
+        return None
+    if (lat, lon) in _META:
+        return _META[(lat, lon)]
+    try:
+        r = await client.get(PROPERTY_URL, params={"wkt": f"POINT({lon} {lat})", "srid": 4326, "latest": "true"},
+                             headers={"X-API-KEY": key}, timeout=20)
+        if r.status_code != 200:
+            return None
+        feats = r.json().get("features") or []
+        props = (feats[0].get("properties") or {}) if feats else {}
+    except (httpx.HTTPError, ValueError):
+        return None
+    # Keys are flat dotted strings ("metadata.layer-name"), not a nested object.
+    meta = {k.removeprefix("metadata."): v for k, v in props.items() if k.startswith("metadata.")}
+    estimate, layer = meta.get("ortho-date-estimate"), meta.get("layer-name")
+    if not estimate or not layer:
+        return None
+    out = {"date": str(estimate)[:10], "collection": meta.get("collection"), "layer": layer, "gsd_m": meta.get("gsd")}
+    _META[(lat, lon)] = out
+    return out
+
+
+async def _extract(client: httpx.AsyncClient, key: str, lat: float, lon: float, layer: str) -> httpx.Response:
+    return await client.post(URL, json=_body(lat, lon, layer), headers={"X-API-KEY": key}, timeout=40)
+
+
 async def fetch_image(client: httpx.AsyncClient, lat: float, lon: float) -> bytes:
+    """The orthophoto for a site. When its capture metadata is known, asks for that one layer so the image and the
+    date match; if that fails, falls back to the default layer list and forgets the date."""
     key = _key()
     if not key:
         raise PermissionError("VEXCEL_API_KEY not configured")
     if geofence_region(lat, lon) is None:  # don't spend a call we know will be refused
         raise PermissionError(f"site is outside the Vexcel hackathon geofence ({REGIONS}); not requested")
-    r = await client.post(URL, json=_body(lat, lon), headers={"X-API-KEY": key}, timeout=40)
+    meta = _META.get((lat, lon))
+    r = await _extract(client, key, lat, lon, meta["layer"]) if meta else None
+    if r is None or r.status_code != 200 or not r.headers.get("content-type", "").startswith("image/"):
+        _META.pop((lat, lon), None)
+        r = await _extract(client, key, lat, lon, DEFAULT_LAYERS)
     if r.status_code == 403:
         raise PermissionError(f"Vexcel returned 403 (geofence or key not entitled). Covered regions: {REGIONS}")
     r.raise_for_status()
@@ -94,17 +139,25 @@ async def fetch_image(client: httpx.AsyncClient, lat: float, lon: float) -> byte
 
 async def fetch_aerial(client: httpx.AsyncClient, audit_id: str, property_id: str, lat: float, lon: float) -> Evidence:
     """Confirm an image can be fetched for the point, then return Evidence that points at our proxy route."""
+    await capture_metadata(client, lat, lon)
     await fetch_image(client, lat, lon)
+    meta = _META.get((lat, lon))  # still set only if the image came from the dated layer
     ev_id = f"ev_vexcel_{property_id}"
+    if meta:
+        dated = (f"Capture date {meta['date']} is Vexcel's estimate for the {meta['layer']} layer "
+                 f"(collection {meta['collection']}), the layer this image was taken from.")
+    else:
+        dated = "Capture date unknown: Vexcel returned no parcel metadata for this site."
     return Evidence(
         id=ev_id, property_id=property_id, provider="Vexcel", asset_type="aerial_image",
-        capture_date=None, retrieved_at=now_iso(),
+        capture_date=meta["date"] if meta else None, retrieved_at=now_iso(),
         view_url=f"/api/audits/{audit_id}/evidence/{ev_id}/image",
-        geometry={"bbox_wgs84": list(bbox(lat, lon, HALF_SIZE_M)), "center": {"lat": lat, "lon": lon}},
+        geometry={"bbox_wgs84": list(bbox(lat, lon, HALF_SIZE_M)), "center": {"lat": lat, "lon": lon},
+                  **({"layer": meta["layer"], "collection": meta["collection"]} if meta else {})},
         scale={"display_m_per_px": round(2 * HALF_SIZE_M / IMAGE_PX, 3), "note": "Provider states about 7.5 cm/pixel ortho"},
         coordinate_reference_system="EPSG:4326 bounding box",
         rights="Vexcel, HackPrinceton 2026 hackathon use only",
-        quality="High-resolution orthophoto. Capture date not yet retrieved from Vexcel metadata.",
+        quality=f"High-resolution orthophoto. {dated}",
         notes="Sponsor imagery fetched live and not stored. Publication rights must be confirmed before screenshots are shared.",
         is_sponsor_source=True,
     )

@@ -47,7 +47,8 @@ Missing or unverified inputs return "needs field measurement". Nothing is defaul
 | AI token usage | Recorded per audit (requests, input, cached, output tokens, list-price estimate), shown on the audit page and totalled at `GET /api/usage`. A typical audit is about 8 requests, 50k input tokens (mostly cached) and 1.5k output tokens, about $0.09 on `claude-opus-5-5` |
 | Demo property | A clearly labelled synthetic fixture, for trying the flow without sponsor data |
 | Cost estimates, tax savings | Not shown. No sourced assumptions exist |
-| Vexcel capture date | Not retrieved yet; shown as unknown |
+| Vexcel capture date | Vexcel's own estimate (`metadata.ortho-date-estimate` from `property/extract`), with the layer and collection. The image is then fetched from that same layer so the date applies to it. Shown as unknown when Vexcel has no parcel at the site |
+| "Built before the ADA" | A labelled context note when CoStar's year built is before 1992. Background only: it never creates a finding or changes a result |
 
 ## Run it
 
@@ -94,6 +95,31 @@ docs/HANDOFF.md Full product and engineering brief
 
 The agent and the scripted pipeline call the same step functions and emit the same events (`PLANNED`, `FETCH_STARTED`, `RULE_EVALUATED`, `REVIEW_REQUESTED`, `AGENT_NOTE`, ...), so the UI doesn't depend on which one ran. Tests never call the real model.
 
+## Accessibility of Unstuck itself
+
+An accessibility tool should pass its own audit. Checked on 15 Nov 2026 against the landing page, a real audit (The Granada Buildings, CoStar 120125) and its action plan:
+
+- **axe-core 4.10** (WCAG 2.0, 2.1 and 2.2 A/AA plus best practices): no violations. Checked on every stage layer (aerial, 3D interior, record), every inspector tab and the integrations panel, at 1440, 390 and 320 px wide.
+- **Lighthouse 12.2**: accessibility 100 and best practices 100 on all three pages, on both desktop and mobile.
+- **Keyboard only.** A tested path runs through the whole inspection:
+  - The view and inspector tabs follow the ARIA tab pattern (arrow keys, Home and End).
+  - Left and right arrows step through checks.
+  - A zoomed image pans with the arrow keys.
+  - Stall marks can be placed without a mouse: focus the image, move the crosshair with the arrows and press Enter.
+  - Focus rings stay visible on the dark stage.
+- **Reflow.** Below 900 px the inspector stacks under the image, with no horizontal scrolling at 320 px.
+
+Fixed along the way:
+
+- the check arrows were 7 px wide
+- headings skipped levels
+- some landmarks were nested
+- the log and record panels scrolled but couldn't be reached by keyboard
+- hidden landing pins stayed in the tab order
+- the inspector covered the whole stage on a phone
+
+Automated tools catch only part of WCAG, and no screen-reader user has tested the app yet. So this is a screen, not a conformance claim, the same standard Unstuck applies to buildings.
+
 ## Limits you should know
 
 - Whether a rule applies to a given building (construction date, alterations, exceptions, readily-achievable barrier removal) is not evaluated. California Title 24 and Texas TAS are not covered.
@@ -105,7 +131,7 @@ The agent and the scripted pipeline call the same step functions and emit the sa
 ## Next
 
 - Vision-proposed stall candidates on the Vexcel image, confirmed by a person
-- Vexcel capture dates, oblique views and object detection
+- Vexcel oblique views and object detection
 - Owner portfolio view: rank your own buildings by what most needs measuring
 
 ## Sources

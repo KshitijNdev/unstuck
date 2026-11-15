@@ -27,7 +27,7 @@ BASICS = """query Basics($id: ID!) { model(id: $id) {
   address { address locality administrativeArea postalCode }
   geolocation { lat long }
   propertyClassifications { classification type }
-  floors { id label edges { id type thickness openings { id type label width height } } }
+  floors { id label edges { id type thickness vertices { position { x y } } openings { id type label width height relativeCenter } } }
   rooms { id classifications { label confidence } dimensions(units: metric) { areaFloor width depth height } }
   panoLocations { id }
 } }"""
@@ -77,7 +77,7 @@ async def fetch_model(client: httpx.AsyncClient, property_id: str, model_id: str
         "classifications": [c.get("classification") for c in m.get("propertyClassifications") or []],
         "floors": len(m.get("floors") or []), "rooms": rooms, "panos": len(m.get("panoLocations") or []),
         "wall_graph_edge_types": dict(edge_types), "visibility": m.get("visibility"),
-        "has_floor_plan": sum(edge_types.values()) > 0, "doorways": doorways(m),
+        "has_floor_plan": sum(edge_types.values()) > 0, "doorways": doorways(m), "floor_plan": floor_plan(m),
     }
     public = m.get("visibility") in ("public", "unlisted")
     evidence = Evidence(
@@ -132,6 +132,23 @@ async def scan_overview(client: httpx.AsyncClient, model_id: str) -> dict[str, A
             "room_labels": dict(rooms.most_common(6))}
 
 
+def _ends(e: dict[str, Any]) -> tuple[tuple[float, float], tuple[float, float]] | None:
+    """A wall edge's two end points in model metres, or None when Matterport gave no usable vertices."""
+    pts = [(v.get("position") or {}) for v in e.get("vertices") or []]
+    pts = [(p["x"], p["y"]) for p in pts if isinstance(p.get("x"), (int, float)) and isinstance(p.get("y"), (int, float))]
+    return (pts[0], pts[-1]) if len(pts) >= 2 else None
+
+
+def floor_plan(model: dict[str, Any]) -> dict[str, list[list[float]]]:
+    """Wall segments per floor label, [x1, y1, x2, y2] in metres, so the app can draw the plan Matterport drew."""
+    out: dict[str, list[list[float]]] = {}
+    for fi, f in enumerate(model.get("floors") or []):
+        segs = [[round(c, 2) for c in (*a, *b)] for e in f.get("edges") or [] if (ends := _ends(e)) for a, b in [ends]]
+        if segs:
+            out[f.get("label") or f"Floor {fi + 1}"] = segs
+    return out
+
+
 def doorways(model: dict[str, Any]) -> list[dict[str, Any]]:
     """Every doorway opening in a fetched model's floor plan, widths converted to inches (narrowest first)."""
     out = []
@@ -141,7 +158,12 @@ def doorways(model: dict[str, Any]) -> list[dict[str, Any]]:
                 if o.get("type") != "doorway":
                     continue
                 w = o.get("width")
+                # relativeCenter is the opening's position along its wall (0 to 1); with the wall's ends that gives a real point.
+                ends, t = _ends(e), o.get("relativeCenter")
+                center = ([round(ends[0][i] + t * (ends[1][i] - ends[0][i]), 2) for i in (0, 1)]
+                          if ends and isinstance(t, (int, float)) and 0 <= t <= 1 else None)
                 out.append({
+                    "center": center,
                     "opening_id": str(o.get("id")), "floor": f.get("label") or f"Floor {fi + 1}",
                     "kind": o.get("label") or "door-unknown",
                     "width_in": round(w * M_TO_IN, 1) if isinstance(w, (int, float)) else None,

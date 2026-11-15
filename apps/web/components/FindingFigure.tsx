@@ -100,11 +100,10 @@ function Dimension({ finding: f }: { finding: Finding }) {
   return (
     <figure className="mt-4 max-w-[360px]">
       <svg viewBox={`0 0 ${W} ${H}`} className="block w-full" role="img"
-        aria-label={obs != null ? `Measured ${obs} inches against a ${req} inch minimum.` : `Not measured yet. Minimum ${req} inches.`}>
+        aria-label={obs != null ? `${f.observed?.method === "scan_floorplan" ? "Frame opening from the scan" : "Measured"} ${obs} inches against a ${req} inch minimum clear width.` : `Not measured yet. Minimum ${req} inches.`}>
         {/* Minimum: a dashed reference line with its label */}
         <line x1={sx(req)} x2={sx(req)} y1={6} y2={H - 18} stroke="var(--ink)" strokeWidth={1.5} strokeDasharray="4 3" />
         <text x={sx(req)} y={H - 4} fontSize={12.5} fill="var(--ink)" textAnchor="middle">{req} in minimum</text>
-        {obs != null && <text x={sx(lo)} y={H - 4} fontSize={11} fill="var(--muted)">{lo} in</text>}
 
         {obs != null ? (
           <>
@@ -117,7 +116,7 @@ function Dimension({ finding: f }: { finding: Finding }) {
               initial={reduce ? false : { opacity: 0 }} whileInView={{ opacity: 1 }} viewport={{ once: true }}
               transition={{ delay: 0.8 }} />
             <text x={(sx(lo) + sx(obs)) / 2} y={16} fontSize={13} fontWeight={700} fill={color} textAnchor="middle">
-              {obs} in measured
+              {obs} in {f.observed?.method === "scan_floorplan" ? "frame opening (scan)" : "measured"}
             </text>
           </>
         ) : (

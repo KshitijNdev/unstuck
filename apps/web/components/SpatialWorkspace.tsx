@@ -2,30 +2,65 @@
 
 import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
-import { FindingCard } from "@/components/FindingCard";
+import { FindingCard, placeLabel } from "@/components/FindingCard";
 import { aerialSources, layerOf, SpatialStage, type Layer } from "@/components/SpatialStage";
 import { SuggestionsPanel } from "@/components/SuggestionsPanel";
-import { StatusBadge } from "@/components/ui";
-import { startAnalysis, type Audit, type Finding } from "@/lib/api";
+import { RouteReplay } from "@/components/RouteReplay";
+import { rovingKeys, StatusBadge } from "@/components/ui";
+import { getSources, startAnalysis, TRIAGE, type Audit, type Finding } from "@/lib/api";
 
-type Filter = "all" | "below" | "review" | "meets";
+type Filter = "all" | "below" | "review" | "meets" | "doors";
 const FILTERS: { id: Filter; label: string; test: (f: Finding) => boolean }[] = [
   { id: "all", label: "All", test: () => true },
-  { id: "below", label: "Below threshold", test: (f) => f.status === "NUMERIC_SCREEN_FAIL" },
-  { id: "review", label: "Needs a person", test: (f) => f.label !== "measured" },
+  { id: "below", label: "Below minimum", test: (f) => f.status === "NUMERIC_SCREEN_FAIL" },
+  { id: "review", label: "Needs review", test: (f) => f.label !== "measured" },
   { id: "meets", label: "Meets", test: (f) => f.status === "NUMERIC_SCREEN_PASS" },
+  // Scan doorways worth a tape measure: everything the scan could not show to be comfortably wide.
+  { id: "doors", label: "Doors to measure", test: (f) => !!f.observed?.triage && f.observed.triage !== "likely_wide" },
 ];
-type Tab = "checks" | "suggestions" | "log";
+type Tab = "checks" | "suggestions" | "log" | "trip";
+const NARROW = "(max-width: 900px)";  // matches spatial.css: below this the inspector stacks under the stage
+
+function useNarrow() {
+  const [narrow, setNarrow] = useState(() => window.matchMedia(NARROW).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(NARROW);
+    const on = () => setNarrow(mq.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  return narrow;
+}
+type Group = "type" | "floor" | "scan" | "review";
+const REVIEW: Record<Finding["review_status"], string> = {
+  NOT_REVIEWED: "Not reviewed", APPROVED: "Reviewed", REJECTED: "Rejected", NEEDS_FIELD_VISIT: "Needs a field visit",
+};
+/** The bucket a finding falls in for each grouping. Exported for tests. */
+export function groupKey(f: Finding, by: Group, audit: Audit): string {
+  if (by === "type") return f.title;
+  if (by === "review") return REVIEW[f.review_status] ?? f.review_status;
+  if (by === "floor") return f.location.match(/Floor [^,(]+/)?.[0].trim() ?? "Site, parking and entrance";
+  const model = audit.property.doors.find((d) => d.id === f.location_id)?.model_id;
+  return model ? `Matterport scan ${model}` : "Not from a scan";
+}
 const REVIEWER_KEY = "unstuck.reviewer";
-const INSET = 440 + 16 * 2;  // floating inspector width plus its margins
+const INSET = 440 + 16 * 2;  // floating inspector width plus its margins; the wide view covers the stage, so it keeps this inset
 
 export function SpatialWorkspace({ audit, auditId, selected, onSelect, onChanged, log }: {
   audit: Audit; auditId: string; selected: Finding | null; onSelect: (id: string) => void;
   onChanged: () => Promise<void>; log: React.ReactNode;
 }) {
   const [layer, setLayer] = useState<Layer>("aerial");
+  const [vexcelAiAllowed, setVexcelAiAllowed] = useState(false);
+  useEffect(() => {
+    getSources().then((s) => setVexcelAiAllowed(!!s.vexcel_ai_allowed)).catch(() => {});
+  }, []);
+  const narrow = useNarrow();
   const [filter, setFilter] = useState<Filter>("all");
   const [tab, setTab] = useState<Tab>("checks");
+  const [group, setGroup] = useState<Group>("type");
+  const [closed, setClosed] = useState<Set<string>>(new Set());
+  const [wide, setWide] = useState(false);
   const [aerialId, setAerialId] = useState<string | null>(null);
   const [focusId, setFocusId] = useState<string | null>(null);
   const [askPublic, setAskPublic] = useState(false);
@@ -34,6 +69,7 @@ export function SpatialWorkspace({ audit, auditId, selected, onSelect, onChanged
   const [reviewer, setReviewerState] = useState(() => localStorage.getItem(REVIEWER_KEY) ?? "");
   const setReviewer = (v: string) => { setReviewerState(v); localStorage.setItem(REVIEWER_KEY, v); };
   const openRef = useRef<HTMLLIElement>(null);
+  const lastSelected = useRef<string | null>(null);
 
   const sources = aerialSources(audit);
   const site = sources.find((e) => e.id === aerialId) ?? sources[0];
@@ -42,6 +78,12 @@ export function SpatialWorkspace({ audit, auditId, selected, onSelect, onChanged
   const pending = (run?.candidates ?? []).filter((c) => c.status === "suggested").length;
   const visible = audit.findings.filter(FILTERS.find((f) => f.id === filter)!.test);
   const count = (t: (f: Finding) => boolean) => audit.findings.filter(t).length;
+  const band = (...names: string[]) => count((f) => names.includes(f.observed?.triage ?? ""));
+  const doorBands = { first: band("narrow", "likely_narrow"), either: band("measure"), wide: band("likely_wide"),
+    total: band("narrow", "likely_narrow", "measure", "likely_wide") };
+  const groups = new Map<string, Finding[]>();
+  for (const f of visible) { const k = groupKey(f, group, audit); groups.set(k, [...(groups.get(k) ?? []), f]); }
+  const toggle = (k: string) => setClosed((c) => { const n = new Set(c); if (n.has(k)) n.delete(k); else n.add(k); return n; });
 
   // Poll only while Gemini is working; the run writes its progress to the audit.
   useEffect(() => {
@@ -52,11 +94,15 @@ export function SpatialWorkspace({ audit, auditId, selected, onSelect, onChanged
 
   useEffect(() => {
     const li = openRef.current;
-    li?.parentElement?.scrollTo({ top: li.offsetTop, behavior: "smooth" });
+    // Scroll only when the selection changes after the page opened, so the counts stay in view on load (and the
+    // effect running twice in development does not count as a change).
+    if (lastSelected.current !== null && lastSelected.current !== selected?.id) li?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    lastSelected.current = selected?.id ?? null;
   }, [selected?.id]);
 
   const choose = (f: Finding) => {
     onSelect(f.id);
+    setClosed((c) => { const k = groupKey(f, group, audit); if (!c.has(k)) return c; const n = new Set(c); n.delete(k); return n; });
     setFocusId(null);
     setLayer(layerOf(f) === "interior" && !audit.evidence.some((e) => e.asset_type === "tour") ? "aerial" : layerOf(f));
   };
@@ -82,7 +128,8 @@ export function SpatialWorkspace({ audit, auditId, selected, onSelect, onChanged
   }
 
   const canAnalyze = site?.asset_type === "aerial_image" && !site.is_synthetic;
-  const blocked = site?.provider === "Vexcel";  // the server enforces this too; asking first avoids a pointless refusal
+  // Vexcel AI analysis only when the operator sets VEXCEL_ALLOW_AI_PROCESSING=1; the server enforces it either way.
+  const blocked = site?.provider === "Vexcel" && !vexcelAiAllowed;
   const progress = run?.status === "running" ? run.progress : null;
   const analyzeControl = (
     <div className="st-analyze">
@@ -100,12 +147,12 @@ export function SpatialWorkspace({ audit, auditId, selected, onSelect, onChanged
         <button type="button" className={`st-tool ${run?.status === "complete" ? "" : "primary"}`} disabled={!canAnalyze || running}
           title={canAnalyze ? "Find candidate accessible-parking features with Gemini" : "Only real aerial imagery can be analyzed"}
           onClick={() => (blocked ? setAskPublic(!askPublic) : analyze(false))} aria-expanded={blocked ? askPublic : undefined}>
-          {run?.status === "complete" ? "Analyze again" : "Analyze imagery"}
+          {run?.status === "complete" ? "Analyze again" : "Analyze parking"}
         </button>
       )}
       {askPublic && (
         <div className="st-pop" role="dialog" aria-label="Vexcel imagery can’t be analyzed">
-          <p>Vexcel’s hackathon terms don’t say its imagery may be sent to a third-party AI service, so Unstuck won’t send it.</p>
+          <p>Vexcel imagery isn’t cleared for third-party AI analysis on this server, so Unstuck won’t send it.</p>
           <p>Analyze the public USGS image of the same site instead? Suggestions stay attached to that image.</p>
           <div>
             <button type="button" className="btn btn-primary btn-sm" onClick={() => analyze(true)}>Analyze public image</button>
@@ -119,7 +166,8 @@ export function SpatialWorkspace({ audit, auditId, selected, onSelect, onChanged
   const tabs: { id: Tab; label: string; badge?: number }[] = [
     { id: "checks", label: "Findings", badge: audit.findings.length },
     { id: "suggestions", label: "AI review", badge: pending || undefined },
-    { id: "log", label: "Activity" },
+    { id: "log", label: "Agent activity" },
+    { id: "trip", label: "Trip" },
   ];
 
   return (
@@ -127,23 +175,32 @@ export function SpatialWorkspace({ audit, auditId, selected, onSelect, onChanged
       <SpatialStage audit={audit} auditId={auditId} selected={selected} layer={layer} setLayer={setLayer}
         onSelect={(id) => { const f = audit.findings.find((x) => x.id === id); if (f) { choose(f); setTab("checks"); } }}
         onChanged={onChanged} aerialId={site?.id ?? null} setAerialId={setAerialId}
-        focusId={focusId} onFocus={focusCandidate} analysis={analyzeControl} inset={INSET} />
+        focusId={focusId} onFocus={focusCandidate} analysis={analyzeControl} inset={narrow ? 0 : INSET} />
 
-      <aside className="sw-panel" aria-label="Inspector">
-        <div className="sw-tabs" role="tablist" aria-label="Inspector">
+      <aside className={`sw-panel ${wide && tab === "checks" ? "wide" : ""}`} aria-label="Inspector">
+        <div className="sw-tabs" role="tablist" aria-label="Inspector" onKeyDown={rovingKeys("tab")}>
           {tabs.map((t) => (
-            <button key={t.id} role="tab" type="button" aria-selected={tab === t.id} aria-controls={`sw-${t.id}`} onClick={() => setTab(t.id)}>
+            <button key={t.id} id={`sw-tab-${t.id}`} role="tab" type="button" aria-selected={tab === t.id} aria-controls={`sw-${t.id}`}
+              tabIndex={tab === t.id ? 0 : -1} onClick={() => setTab(t.id)}>
               {t.label}{t.badge != null && <span className="sw-badge">{t.badge}</span>}
             </button>
           ))}
         </div>
 
-        <div id="sw-checks" role="tabpanel" hidden={tab !== "checks"} className="sw-tabpanel">
+        <div id="sw-checks" role="tabpanel" aria-labelledby="sw-tab-checks" hidden={tab !== "checks"} className="sw-tabpanel">
           <div className="sw-tally" aria-label="Result summary">
-            <span className={count(FILTERS[1].test) ? "bad" : ""}><b>{count(FILTERS[1].test)}</b>below threshold</span>
-            <span><b>{count(FILTERS[2].test)}</b>need a person</span>
-            <span><b>{count((f) => f.label === "measured")}</b>measured</span>
+            <span className={count(FILTERS[1].test) ? "bad" : ""}><b>{count(FILTERS[1].test)}</b>below minimum</span>
+            <span><b>{count(FILTERS[2].test)}</b>need review</span>
+            <span title="Values a person recorded or a trusted source supplied. Scan frame openings and AI suggestions are not counted.">
+              <b>{count((f) => f.label === "measured")}</b>verified measurements</span>
           </div>
+          {doorBands.total > 0 && (
+            <p className="sw-triage">
+              <strong>{doorBands.total} scan doorways sorted by width.</strong>{" "}
+              {doorBands.first} to measure first, {doorBands.either} could go either way, {doorBands.wide} likely wide
+              enough. Estimates from the floor plan; none is passed until measured.
+            </p>
+          )}
           <div className="sw-filters" role="group" aria-label="Filter checks">
             {FILTERS.map((f) => (
               <button key={f.id} type="button" aria-pressed={filter === f.id} onClick={() => setFilter(f.id)}>
@@ -151,45 +208,81 @@ export function SpatialWorkspace({ audit, auditId, selected, onSelect, onChanged
               </button>
             ))}
           </div>
-          <ul className="sw-list">
-            {visible.map((f) => {
-              const index = audit.findings.indexOf(f) + 1;
-              const on = selected?.id === f.id;
-              return (
-                <li key={f.id} ref={on ? openRef : undefined} className={on ? "open" : ""}>
-                  {!on && (
-                    <button type="button" className="sw-row" onClick={() => choose(f)}>
-                      <span className="sw-num">{index}</span>
-                      <span className="sw-row-text"><strong>{f.title}</strong><span>{f.location}</span></span>
-                      <StatusBadge status={f.status} />
-                    </button>
-                  )}
-                  {on && (
-                    <motion.ul className="sw-card" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}>
-                      <FindingCard finding={f} auditId={auditId} selected onSelect={() => choose(f)} onChanged={onChanged} />
-                    </motion.ul>
-                  )}
-                </li>
-              );
-            })}
-            {visible.length === 0 && audit.findings.length > 0 && <li className="sw-none">No checks match this filter.</li>}
-            {audit.findings.length === 0 && <li className="sw-none">No checks were evaluated. The audit found no usable evidence.</li>}
-          </ul>
+          <div className="sw-groupbar">
+            <label>Group by{" "}
+              <select value={group} onChange={(e) => { setGroup(e.target.value as Group); setClosed(new Set()); }}>
+                <option value="type">Issue type</option><option value="floor">Floor</option>
+                <option value="scan">Scan</option><option value="review">Review status</option>
+              </select>
+            </label>
+            <button type="button" className="sw-wide-btn" aria-pressed={wide} onClick={() => setWide(!wide)}>
+              {wide ? "Back to map" : "Expand list"}
+            </button>
+          </div>
+          <div className="sw-body">
+          <div className="sw-list">
+            {[...groups].map(([k, items]) => (
+              <section key={k} className="sw-group">
+                <button type="button" className="sw-group-head" aria-expanded={!closed.has(k)} onClick={() => toggle(k)}>
+                  <span>{k}</span><em>{items.length}</em>
+                  {items.some((f) => f.status === "NUMERIC_SCREEN_FAIL") && <i className="bad">{items.filter((f) => f.status === "NUMERIC_SCREEN_FAIL").length} below</i>}
+                </button>
+                {!closed.has(k) && (
+                  <ul>
+                    {items.map((f) => {
+                      const index = audit.findings.indexOf(f) + 1;
+                      const on = selected?.id === f.id;
+                      return (
+                        <li key={f.id} ref={on ? openRef : undefined} className={on ? "open" : ""}>
+                          {(!on || wide) && (
+                            <button type="button" className={`sw-row ${on ? "on" : ""}`} aria-current={on || undefined} onClick={() => choose(f)}>
+                              <span className="sw-num">{index}</span>
+                              <span className="sw-row-text"><strong>{f.title}</strong>
+                                <span>{placeLabel(f.location)}{f.observed?.triage ? ` · ${TRIAGE[f.observed.triage]}` : ""}</span></span>
+                              <StatusBadge status={f.status} />
+                            </button>
+                          )}
+                          {on && !wide && (
+                            <motion.ul className="sw-card" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
+                              transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}>
+                              <FindingCard finding={f} auditId={auditId} selected onSelect={() => choose(f)} onChanged={onChanged} />
+                            </motion.ul>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </section>
+            ))}
+            {visible.length === 0 && audit.findings.length > 0 && <p className="sw-none">No checks match this filter.</p>}
+            {audit.findings.length === 0 && <p className="sw-none">No checks were evaluated. The audit found no usable evidence.</p>}
+          </div>
+          {wide && selected && (
+            <ul className="sw-card sw-detail">
+              <FindingCard finding={selected} auditId={auditId} selected onSelect={() => {}} onChanged={onChanged} />
+            </ul>
+          )}
+          </div>
         </div>
 
-        <div id="sw-suggestions" role="tabpanel" hidden={tab !== "suggestions"} className="sw-tabpanel">
+        <div id="sw-suggestions" role="tabpanel" aria-labelledby="sw-tab-suggestions" hidden={tab !== "suggestions"} className="sw-tabpanel">
           <SuggestionsPanel auditId={auditId} site={site} run={run} reviewer={reviewer} setReviewer={setReviewer}
             focusId={focusId} onFocus={focusCandidate} onChanged={onChanged} error={aiError}
             analyze={canAnalyze && !running ? (blocked ? (
               <>
-                <p>This is Vexcel imagery, which Unstuck won’t send to a third-party AI service. The public USGS image of the same site can be analyzed instead.</p>
+                <p>This Vexcel imagery isn’t cleared for third-party AI analysis on this server. The public USGS image of the same site can be analyzed instead.</p>
                 <button type="button" className="btn btn-primary btn-sm" onClick={() => analyze(true)}>Analyze public image</button>
               </>
-            ) : <button type="button" className="btn btn-primary btn-sm" onClick={() => analyze(false)}>Analyze imagery</button>) : null} />
+            ) : <button type="button" className="btn btn-primary btn-sm" onClick={() => analyze(false)}>Analyze parking</button>) : null} />
         </div>
 
-        <div id="sw-log" role="tabpanel" hidden={tab !== "log"} className="sw-tabpanel sw-log">{log}</div>
+        <div id="sw-log" role="tabpanel" aria-labelledby="sw-tab-log" tabIndex={0} hidden={tab !== "log"} className="sw-tabpanel sw-log">{log}</div>
+
+        <div id="sw-trip" role="tabpanel" aria-labelledby="sw-tab-trip" hidden={tab !== "trip"} className="sw-tabpanel">
+          {/* Mounted only while open so the replay starts from the kerb each time. */}
+          {tab === "trip" && <RouteReplay findings={audit.findings} compact />}
+        </div>
       </aside>
     </section>
   );

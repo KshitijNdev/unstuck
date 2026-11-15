@@ -197,3 +197,20 @@ def test_integration_states_never_claim_success_from_a_key(client, monkeypatch):
     assert client.post("/api/integrations/vexcel/check").json()["state"] == "verified"
     assert client.post("/api/integrations/nope/check").status_code == 404
     integrations.LAST.clear()
+
+
+def test_gemini_quota_exhaustion_reads_as_failed_not_verified(client, monkeypatch):
+    from app import integrations
+    integrations.LAST.clear()
+
+    class Quota(Exception):
+        code = 429
+
+    async def spent(provider):
+        raise Quota("RESOURCE_EXHAUSTED for request with prompt text")
+
+    monkeypatch.setattr(integrations, "_probe", spent)
+    r = client.post("/api/integrations/gemini/check").json()
+    assert r["state"] == "failed" and "429" in r["check_detail"]
+    assert "prompt text" not in r["check_detail"]   # provider messages are not echoed
+    integrations.LAST.clear()
