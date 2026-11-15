@@ -5,7 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { placeLabel } from "@/components/FindingCard";
 import { QrCode } from "@/components/QrCode";
 import { ErrorNote, StatusBadge, SyntheticBanner } from "@/components/ui";
-import { addMeasurement, getAudit, TRIAGE, type Audit, type Finding } from "@/lib/api";
+import { addMeasurement, getAudit, TRIAGE, type Audit, type Finding, isScanEstimate } from "@/lib/api";
+import { useReviewer } from "@/lib/reviewer";
 
 type Area = "parking" | "route" | "entrance" | "inside";
 interface Field { name: string; label: string; unit: "spaces" | "in"; step: number | "any" }
@@ -160,10 +161,8 @@ function Stop({ item, n, auditId, who, onSaved }: { item: Item; n: number; audit
 export function ChecklistClient({ id }: { id: string }) {
   const [audit, setAudit] = useState<Audit | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Same name the inspection workspace remembers; read lazily because the server has no storage.
-  const [who, setWho] = useState(() => {
-    try { return typeof window === "undefined" ? "" : localStorage.getItem("unstuck.reviewer") ?? ""; } catch { return ""; }
-  });
+  // The same remembered name as every other "Your name" field.
+  const [who, remember] = useReviewer();
 
   const refresh = useCallback(async () => {
     try { setAudit(await getAudit(id)); } catch (e) { setError((e as Error).message); }
@@ -175,11 +174,6 @@ export function ChecklistClient({ id }: { id: string }) {
   // Only rendered once the audit has loaded in the browser, so reading the origin here never differs from the server HTML.
   const url = audit && typeof window !== "undefined" ? `${window.location.origin}/audits/${id}/checklist` : "";
   const local = /^https?:\/\/(localhost|127\.0\.0\.1)/.test(url);
-
-  function remember(name: string) {
-    setWho(name);
-    try { localStorage.setItem("unstuck.reviewer", name); } catch { /* not essential */ }
-  }
 
   if (error && !audit) return <div className="rp"><ErrorNote message={error} /></div>;
   if (!audit || !items) return <p role="status" className="rp text-muted">Loading the field checklist…</p>;
@@ -238,12 +232,22 @@ export function ChecklistClient({ id }: { id: string }) {
         );
       })}
 
-      {items.done.length > 0 && (
+      {items.done.some((f) => !isScanEstimate(f)) && (
         <section className="ck-area ck-done" aria-labelledby="ck-done">
           <h2 id="ck-done">Already measured on site</h2>
           <ul>
-            {items.done.map((f) => (
+            {items.done.filter((f) => !isScanEstimate(f)).map((f) => (
               <li key={f.id}><StatusBadge status={f.status} /> {f.title}, {placeLabel(f.location)}{f.observed ? `: ${fmt(f.observed)}` : ""}</li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {items.done.some(isScanEstimate) && (
+        <section className="ck-area ck-done" aria-labelledby="ck-est">
+          <h2 id="ck-est">Accepted from the scan, not measured</h2>
+          <ul>
+            {items.done.filter(isScanEstimate).map((f) => (
+              <li key={f.id}><StatusBadge status={f.status} /> {f.title}, {placeLabel(f.location)}{f.observed ? `: about ${fmt(f.observed)}` : ""}. Worth a tape if you are passing.</li>
             ))}
           </ul>
         </section>

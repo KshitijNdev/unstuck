@@ -4,7 +4,8 @@ import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { FindingFigure } from "@/components/FindingFigure";
 import { StatusBadge, ErrorNote } from "@/components/ui";
-import { addMeasurement, CONFIDENCE, verifyFinding, type Finding, TRIAGE, takeScanWidth, feetInches } from "@/lib/api";
+import { addMeasurement, CONFIDENCE, verifyFinding, type Finding, TRIAGE, takeScanWidth, feetInches, isScanEstimate } from "@/lib/api";
+import { useReviewer } from "@/lib/reviewer";
 
 const PARKING_FIELDS = [
   { name: "parking_total_spaces", label: "Total spaces in this lot" },
@@ -37,7 +38,7 @@ export function FindingCard({ finding: f, auditId, selected, onSelect, onChanged
   const fields = isParking ? PARKING_FIELDS : isDoor ? DOOR_FIELDS : [];
   const [open, setOpen] = useState(false);
   const [values, setValues] = useState<Record<string, string>>({});
-  const [who, setWho] = useState("");
+  const [who, setWho] = useReviewer();
   const [method, setMethod] = useState("field");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -73,7 +74,7 @@ export function FindingCard({ finding: f, auditId, selected, onSelect, onChanged
 
   const review = (action: string) => {
     // Reuse the name given in AI review ("Reviewing as"); ask only when no name is known yet.
-    const reviewer = who || localStorage.getItem("unstuck.reviewer") || window.prompt("Your name, for the audit trail:") || "";
+    const reviewer = who || window.prompt("Your name, for the audit trail:") || "";
     if (!reviewer) return;
     setWho(reviewer);
     run(async () => { await verifyFinding(f.id, { action, reviewer }); });
@@ -105,7 +106,7 @@ export function FindingCard({ finding: f, auditId, selected, onSelect, onChanged
             <div><dt className="text-sm text-muted">Clear width</dt><dd className="font-semibold">Not verified</dd><dd className="text-sm text-muted">Needs a hand measurement</dd></div>
           </>
         ) : <div><dt className="text-sm text-muted">Observed</dt><dd className="font-semibold">{fmt(f.observed)}</dd></div>}
-        <div><dt className="text-sm text-muted">Basis</dt><dd className="font-semibold first-letter:uppercase">{f.label}</dd><dd className="text-sm text-muted">{CONFIDENCE[f.confidence] ?? f.confidence}</dd></div>
+        <div><dt className="text-sm text-muted">Basis</dt><dd className="font-semibold first-letter:uppercase">{isScanEstimate(f) ? "Estimated, not measured" : f.label}</dd><dd className="text-sm text-muted">{CONFIDENCE[f.confidence] ?? f.confidence}</dd></div>
         <div><dt className="text-sm text-muted">Review</dt><dd className="font-semibold first-letter:uppercase">{f.review_status.replaceAll("_", " ").toLowerCase()}</dd>{f.reviewed_by && <dd className="text-sm text-muted">by {f.reviewed_by}</dd>}</div>
       </dl>
 

@@ -7,7 +7,8 @@ import { aerialSources, layerOf, SpatialStage, type Layer } from "@/components/S
 import { SuggestionsPanel } from "@/components/SuggestionsPanel";
 import { RouteReplay } from "@/components/RouteReplay";
 import { rovingKeys, StatusBadge } from "@/components/ui";
-import { acceptScanEstimates, getSources, startAnalysis, TRIAGE, type Audit, type Finding, feetInches, doorwayNumber } from "@/lib/api";
+import { acceptScanEstimates, getSources, startAnalysis, TRIAGE, type Audit, type Finding, feetInches, doorwayNumber, isScanEstimate } from "@/lib/api";
+import { useReviewer } from "@/lib/reviewer";
 
 type Filter = "all" | "below" | "review" | "meets" | "doors";
 const FILTERS: { id: Filter; label: string; test: (f: Finding) => boolean }[] = [
@@ -43,7 +44,6 @@ export function groupKey(f: Finding, by: Group, audit: Audit): string {
   const model = audit.property.doors.find((d) => d.id === f.location_id)?.model_id;
   return model ? `Matterport scan ${model}` : "Not from a scan";
 }
-const REVIEWER_KEY = "unstuck.reviewer";
 const INSET = 440 + 16 * 2;  // floating inspector width plus its margins; the wide view covers the stage, so it keeps this inset
 
 export function SpatialWorkspace({ audit, auditId, selected, onSelect, onChanged, log }: {
@@ -67,8 +67,7 @@ export function SpatialWorkspace({ audit, auditId, selected, onSelect, onChanged
   const [askPublic, setAskPublic] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   // The workspace only renders after the audit loads in the browser, so localStorage is available here.
-  const [reviewer, setReviewerState] = useState(() => localStorage.getItem(REVIEWER_KEY) ?? "");
-  const setReviewer = (v: string) => { setReviewerState(v); localStorage.setItem(REVIEWER_KEY, v); };
+  const [reviewer, setReviewer] = useReviewer();
   const openRef = useRef<HTMLLIElement>(null);
   const lastSelected = useRef<string | null>(null);
 
@@ -207,8 +206,12 @@ export function SpatialWorkspace({ audit, auditId, selected, onSelect, onChanged
           <div className="sw-tally" aria-label="Result summary">
             <span className={count(FILTERS[1].test) ? "bad" : ""}><b>{count(FILTERS[1].test)}</b>below minimum</span>
             <span><b>{count(FILTERS[2].test)}</b>need review</span>
-            <span title="Values a person recorded or a trusted source supplied. Scan frame openings and AI suggestions are not counted.">
-              <b>{count((f) => f.label === "measured")}</b>verified measurements</span>
+            <span title="Values a person recorded or a trusted source supplied. Scan frame openings, accepted scan estimates and AI suggestions are not counted.">
+              <b>{count((f) => f.label === "measured" && !isScanEstimate(f))}</b>verified measurements</span>
+            {count(isScanEstimate) > 0 && (
+              <span title="Doorways screened on a scan dimension that a person accepted. Nobody measured these doors.">
+                <b>{count(isScanEstimate)}</b>accepted estimates</span>
+            )}
           </div>
           {doorBands.total > 0 && (
             <div className="sw-triage">

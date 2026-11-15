@@ -4,6 +4,7 @@ import { motion } from "motion/react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { builtBeforeAda, ErrorNote, PreAdaNote, rovingKeys } from "@/components/ui";
 import { TourMeasure } from "@/components/TourMeasure";
+import { useReviewer } from "@/lib/reviewer";
 import { CATEGORY_LABEL, doorwayNumber, feetInches, chooseModel, evidenceUrl, getSources, saveMarkups, suggestMarkups, type Audit, type StallSuggestion, type Candidate, type Evidence, type Finding, type Pin,
   type Region } from "@/lib/api";
 
@@ -254,7 +255,7 @@ export function SpatialStage({ audit, auditId, selected, onSelect, layer, setLay
   const [marking, setMarking] = useState(false);
   const [pins, setPins] = useState<Pin[]>([]);
   const [kind, setKind] = useState<Pin["kind"]>("accessible");
-  const [who, setWho] = useState(site?.geometry?.pins_by ?? "");
+  const [who, setWho] = useReviewer();
   // Claude stall suggestions are proposals only: they stay apart from the marks until a person accepts each one.
   const [ideas, setIdeas] = useState<StallSuggestion[] | null>(null);
   const [ideaNote, setIdeaNote] = useState<string | null>(null);

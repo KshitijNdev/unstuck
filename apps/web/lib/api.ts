@@ -320,6 +320,8 @@ export const applyCandidates = (id: string, evidence_id: string, reviewer: strin
 export const takeScanWidth = (id: string, doorId: string, door: "none" | "hinged", reviewed_by: string) =>
   request<unknown>(`/api/audits/${id}/doors/${encodeURIComponent(doorId)}/use-scan-width`,
     { method: "POST", body: JSON.stringify({ door, reviewed_by }) });
+/** True when a result rests on a scan dimension a person accepted, not on a measurement of the thing itself. */
+export const isScanEstimate = (f: Finding) => f.observed?.method === "scan_mesh";
 /** The number in a scan doorway's name ("Scan doorway 12, Floor 1" -> 12), or null for anything else. */
 export const doorwayNumber = (location: string) => {
   const m = /^Scan doorway (\d+)/.exec(location);

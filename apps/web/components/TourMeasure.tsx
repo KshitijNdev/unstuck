@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { addMeasurement, getMatterportSdk, type Audit, type Finding } from "@/lib/api";
+import { useReviewer } from "@/lib/reviewer";
 
 /**
  * The Matterport tour with measuring wired in. A person draws a line across a door with the tour's own ruler;
@@ -26,7 +27,6 @@ declare global {
 }
 
 const SDK_SRC = "https://static.matterport.com/showcase-sdk/latest.js";
-const REVIEWER_KEY = "unstuck.reviewer";
 const REFUSED_KEY = "unstuck.mpSdkRefused";   // remembers, per tab, that Matterport refused the key for this site
 const M_TO_IN = 1 / 0.0254;
 type Line = { sid: string; meters: number; inches: number };
@@ -66,7 +66,7 @@ export function TourMeasure({ src, title, modelId, audit, auditId, selected, onC
   const doors = audit.property.doors;
   const [doorId, setDoorId] = useState("");
   const [what, setWhat] = useState(WHAT[0].name);
-  const [who, setWho] = useState(() => localStorage.getItem(REVIEWER_KEY) ?? "");
+  const [who, setWho] = useReviewer();
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -141,7 +141,6 @@ export function TourMeasure({ src, title, modelId, audit, auditId, selected, onC
         location_id: door.id, name: what, value: line.inches, unit: "in", method: "model_metric", reviewed_by: who,
         notes: `Line ${line.sid} drawn in the Matterport tour${modelId ? ` of scan ${modelId}` : ""}: ${line.meters.toFixed(3)} m.`,
       });
-      localStorage.setItem(REVIEWER_KEY, who);
       setSaved(`Saved ${line.inches} in as ${what === WHAT[0].name ? "clear width" : "opening depth"} for ${door.label}.`);
       await onChanged();
     } catch (err) {

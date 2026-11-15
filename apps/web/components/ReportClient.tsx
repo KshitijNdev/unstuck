@@ -5,7 +5,7 @@ import { RouteReplay } from "@/components/RouteReplay";
 import { useEffect, useState } from "react";
 import { placeLabel } from "@/components/FindingCard";
 import { builtBeforeAda, ErrorNote, PreAdaNote, StatusBadge, SyntheticBanner } from "@/components/ui";
-import { API, CONFIDENCE, getAudit, type Audit, type Finding } from "@/lib/api";
+import { API, CONFIDENCE, getAudit, type Audit, type Finding, isScanEstimate } from "@/lib/api";
 
 const GROUPS: { id: string; title: string; blurb: string; tone: string; pick: (f: Finding) => boolean }[] = [
   { id: "act", title: "Act on", tone: "fail", blurb: "A trusted measurement is under the numeric minimum. Confirm on site, then plan the fix with a qualified professional.",
@@ -33,7 +33,9 @@ function FindingDetail({ f, audit }: { f: Finding; audit: Audit }) {
         <div><dt>Requirement</dt><dd>{f.required ? `At least ${fmt(f.required)}` : "Not determined"}</dd></div>
         {f.observed?.method === "scan_floorplan"
           ? <div><dt>Frame opening (scan)</dt><dd>{fmt(f.observed)}. Clear width not verified</dd></div>
-          : <div><dt>Observed</dt><dd>{fmt(f.observed)}</dd></div>}
+          : isScanEstimate(f)
+            ? <div><dt>Estimated from the scan</dt><dd>{fmt(f.observed)}. Accepted by a person, not measured</dd></div>
+            : <div><dt>Observed</dt><dd>{fmt(f.observed)}</dd></div>}
         <div><dt>Basis</dt><dd>{CONFIDENCE[f.confidence] ?? f.confidence}</dd></div>
         <div><dt>Review</dt><dd>{f.review_status.replaceAll("_", " ").toLowerCase()}{f.reviewed_by ? ` by ${f.reviewed_by}` : ""}</dd></div>
       </dl>
@@ -44,7 +46,7 @@ function FindingDetail({ f, audit }: { f: Finding; audit: Audit }) {
           <ul>
             {measured.map((m) => (
               <li key={m.id}>
-                {m.name.replace(prefix, "").replaceAll("_", " ")}: {m.value} {m.unit}, {m.method.replace("_", " ")}
+                {m.name.replace(prefix, "").replaceAll("_", " ")}: {m.value} {m.unit}, {m.method === "scan_mesh" ? "scan estimate" : m.method.replace("_", " ")}
                 {m.reviewed_by ? ` by ${m.reviewed_by}` : ""}, {day(m.recorded_at)}{m.notes ? `. ${m.notes}` : ""}
               </li>
             ))}
