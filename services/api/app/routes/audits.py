@@ -35,6 +35,35 @@ def _audit(audit_id: str) -> Audit:
     return audit
 
 
+def featured_ids() -> list[str]:
+    """Finished screenings shown on the landing page, set by the operator (UNSTUCK_FEATURED_AUDITS, comma-separated)."""
+    return [x.strip() for x in os.environ.get("UNSTUCK_FEATURED_AUDITS", "").split(",") if x.strip()][:6]
+
+
+def _writable(audit_id: str) -> Audit:
+    """Featured screenings are public, so nobody may change them; visitors edit their own copy instead."""
+    if audit_id in featured_ids():
+        raise HTTPException(403, "This is a featured screening, so it is read-only. "
+                                 "Open it from the home page to get your own copy to edit.")
+    return _audit(audit_id)
+
+
+def _summary(a: Audit) -> dict:
+    """What the landing page needs to show a finished screening; counts match the action plan's three groups."""
+    fs = a.findings
+    return {
+        "id": a.id, "name": a.property.name if a.property else a.property_id,
+        "address": a.property.address if a.property else None,
+        "type": a.property.type if a.property else None,
+        "year_built": a.property.year_built if a.property else None,
+        "started_at": a.started_at, "completed_at": a.completed_at, "engine": a.engine, "is_synthetic": a.is_synthetic,
+        "counts": {"act": sum(f.status == "NUMERIC_SCREEN_FAIL" for f in fs),
+                   "verify": sum(f.label != "measured" for f in fs),
+                   "passed": sum(f.status == "NUMERIC_SCREEN_PASS" for f in fs)},
+        "sources": sorted({e.provider for e in a.evidence}),
+    }
+
+
 @router.get("/usage")
 def get_usage():
     """Running total of AI model tokens across every audit on this server."""
@@ -140,6 +169,32 @@ def create_audit(body: CreateAudit, background: BackgroundTasks):
     return {"audit_id": audit_id, "status": "QUEUED", "status_url": f"/api/audits/{audit_id}"}
 
 
+@router.get("/audits/featured")
+def get_featured():
+    """Finished screenings anyone can open instantly. Declared before /audits/{audit_id} so the path is not an id."""
+    audits = [a for a in (store.get(i) for i in featured_ids()) if a is not None and a.status == "COMPLETE"]
+    return {"audits": [_summary(a) for a in audits]}
+
+
+@router.post("/audits/{audit_id}/copy", status_code=201)
+def copy_audit(audit_id: str):
+    """Give a visitor their own editable copy of a featured screening. Copies stored evidence and results;
+    no sponsor source or AI model is called, so it is instant and free, and the featured original stays untouched."""
+    if audit_id not in featured_ids():
+        raise HTTPException(404, "Only featured screenings can be copied.")
+    src = _audit(audit_id)
+    if src.status != "COMPLETE":
+        raise HTTPException(409, "This screening has not finished yet.")
+    new_id = f"audit_{uuid.uuid4().hex[:10]}"
+    # The audit id is embedded in finding ids and proxied image URLs; a whole-document swap keeps them all consistent.
+    copy = Audit.model_validate_json(src.model_dump_json().replace(src.id, new_id))
+    copy.copied_from = src.id
+    runner.emit(copy, "AGENT_NOTE", "orchestrator",
+                f"Opened as a copy of featured screening {src.id}. No sponsor source or AI model was called; "
+                "changes stay on this copy.")
+    return {"audit_id": copy.id, "status": copy.status, "copied_from": src.id}
+
+
 @router.get("/audits/{audit_id}")
 def get_audit(audit_id: str):
     return _audit(audit_id)
@@ -174,7 +229,7 @@ async def stream_events(audit_id: str, after: int = 0):
 
 @router.post("/audits/{audit_id}/measurements")
 def add_measurement(audit_id: str, body: MeasurementIn):
-    audit = _audit(audit_id)
+    audit = _writable(audit_id)
     if audit.status not in ("COMPLETE",):
         raise HTTPException(409, "Wait for the audit to finish before adding measurements.")
     if body.name not in MEASUREMENT_NAMES:
@@ -275,7 +330,7 @@ def use_scan_width(audit_id: str, door_id: str, body: UseScanWidthIn):
 def save_markups(audit_id: str, body: PinsIn):
     """A person marks accessible stalls on the aerial image. The marks become the observed counts (method: manual)
     and stay attached to the image as evidence. Zero marks is a valid answer: "I looked and found none"."""
-    audit = _audit(audit_id)
+    audit = _writable(audit_id)
     ev = aerial_evidence(audit, body.evidence_id)
     return apply_pins(audit, ev, [p.model_dump() for p in body.pins], body.reviewed_by,
                       f"Counted by a person from marks on the {ev.provider} image.")
@@ -325,7 +380,7 @@ async def suggest_markups(audit_id: str):
     nothing is saved as a mark or a count until a person accepts them and saves through /markups."""
     from ..agents import orchestrator, stalls  # local import: the agent is optional
 
-    audit = _audit(audit_id)
+    audit = _writable(audit_id)
     if audit.status != "COMPLETE":
         raise HTTPException(409, "Wait for the audit to finish before asking for suggestions.")
     ev = next((e for e in audit.evidence if e.asset_type == "aerial_image"), None)
@@ -360,7 +415,7 @@ async def suggest_markups(audit_id: str):
 @router.post("/audits/{audit_id}/model")
 async def choose_model(audit_id: str, body: ModelIn):
     """Switch which linked Matterport scan is shown. Only scans the CoStar crosswalk links to this property are allowed."""
-    audit = _audit(audit_id)
+    audit = _writable(audit_id)
     record = next((e for e in audit.evidence if e.provider == "CoStar"), None)
     linked = ((record.geometry or {}).get("summary") or {}).get("model_ids", []) if record else []
     if body.model_id not in linked:
@@ -384,6 +439,7 @@ def verify_finding(finding_id: str, body: VerifyIn):
     finding = next((f for f in (audit.findings if audit else []) if f.id == finding_id), None)
     if finding is None:
         raise HTTPException(404, "Finding not found")
+    _writable(audit.id)
     if body.action == "approve" and finding.label != "measured":
         raise HTTPException(409, "Only a finding backed by a trusted measurement can be approved. Add a measurement first.")
     finding.review_status = {"approve": "APPROVED", "reject": "REJECTED", "needs_field_visit": "NEEDS_FIELD_VISIT"}[body.action]

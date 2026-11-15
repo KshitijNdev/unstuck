@@ -75,6 +75,7 @@ export function ReportClient({ id }: { id: string }) {
     <article className="rp">
       <div className="rp-actions no-print">
         <Link className="btn btn-sm" href={`/audits/${id}`}>Back to inspection</Link>
+        <Link className="btn btn-sm" href={`/audits/${id}/checklist`}>Field checklist</Link>
         <a className="btn btn-sm" href={`${API}/api/audits/${id}/export`} target="_blank" rel="noreferrer">Download JSON</a>
         <button className="btn btn-sm btn-primary" onClick={() => window.print()}>Print or save as PDF</button>
       </div>

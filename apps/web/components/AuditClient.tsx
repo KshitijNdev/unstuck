@@ -229,6 +229,11 @@ export function AuditClient({ id }: { id: string }) {
         </div>
         <div className="au-actions">
           {audit?.is_synthetic && <span className="au-chip" title="This property does not exist and no value was observed at a real building.">Synthetic demo data</span>}
+          {audit?.copied_from && (
+            <span className="au-chip" title={`Your own copy of featured screening ${audit.copied_from}, made from its stored evidence and results. Changes stay on this copy.`}>
+              Copy of a featured screening
+            </span>
+          )}
           {audit?.status === "FAILED" && <span className="au-chip bad">Audit stopped early</span>}
           {builtBeforeAda(audit?.property.year_built) && (
             <span className="au-chip ctx" title="Context only, not a finding. Details are on the Property record layer and in the action plan.">
@@ -252,6 +257,7 @@ export function AuditClient({ id }: { id: string }) {
               </div>
             )}
           </div>
+          <Link className="btn btn-sm" href={`/audits/${id}/checklist`}>Field checklist</Link>
           <Link className="btn btn-sm" href={`/audits/${id}/report`}>Action plan</Link>
         </div>
       </header>

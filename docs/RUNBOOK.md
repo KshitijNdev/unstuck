@@ -66,6 +66,24 @@ curl -s http://127.0.0.1:8000/api/audits/audit_xxx/findings
 
 For a free run without sponsor APIs, use the synthetic demo. Get its id from `GET /api/properties/demo` and post `{"property_id": "<id>", "allow_synthetic_fixture": true}`.
 
+Portfolio triage (reads the CoStar extract only, no provider or AI calls; the first call after a restart builds `costar_index_v2.json` next to the kit, about 4 s):
+
+```bash
+curl -s "http://127.0.0.1:8000/api/portfolio" | head -c 300        # all buildings, owner groups, totals
+curl -s "http://127.0.0.1:8000/api/portfolio?owner=<owner id>"     # one owner's buildings
+```
+
+## Featured screenings (landing page)
+
+The landing page shows finished screenings listed in `UNSTUCK_FEATURED_AUDITS` (comma-separated audit ids; two or three is best). Featured originals are read-only (writes return 403). Opening one gives the visitor a free copy (`POST /api/audits/<id>/copy`), so the demo works even if Vexcel, Matterport or Claude is slow.
+
+1. Run two or three real audits and let them finish. Pick ones whose results look good (doorways, a below-minimum check).
+2. Add `UNSTUCK_FEATURED_AUDITS=audit_aaa,audit_bbb` to `services/api/.env` (on the server: `/opt/unstuck/services/api/.env`). Use `grep -c '^UNSTUCK_FEATURED_AUDITS=' services/api/.env` to check it, and don't print the file.
+3. Restart the API (`scripts/dev.sh restart` locally, `systemctl restart unstuck-api` on the server).
+4. Check: `curl -s http://127.0.0.1:8000/api/audits/featured` lists them.
+
+Featured ids only work on the server whose database holds those audits.
+
 ## Troubleshooting
 
 | Symptom | What to do |

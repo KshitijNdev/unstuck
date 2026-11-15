@@ -23,7 +23,7 @@ def _load_env() -> None:
 
 _load_env()
 
-from .routes import audits, vision  # noqa: E402  (after env is loaded)
+from .routes import audits, portfolio, vision  # noqa: E402  (after env is loaded)
 
 app = FastAPI(title="Unstuck API", version="0.1.0",
               description="Accessibility screening. Not a certified ADA inspection or legal determination.")
@@ -34,6 +34,7 @@ app.add_middleware(
 )
 app.include_router(audits.router)
 app.include_router(vision.router)
+app.include_router(portfolio.router)
 
 
 @app.get("/health")

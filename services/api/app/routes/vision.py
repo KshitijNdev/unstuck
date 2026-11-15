@@ -21,7 +21,7 @@ from ..models import Audit, Evidence, now_iso
 from ..pipeline import runner
 from ..providers import usgs, vexcel
 from ..vision import gemini
-from .audits import _audit, aerial_evidence, apply_pins
+from .audits import _writable, aerial_evidence, apply_pins
 
 router = APIRouter(prefix="/api")
 
@@ -118,7 +118,7 @@ async def _run(audit_id: str, evidence_id: str) -> None:
 
 @router.post("/audits/{audit_id}/analysis", status_code=202)
 async def start_analysis(audit_id: str, body: AnalysisIn, background: BackgroundTasks):
-    audit = _audit(audit_id)
+    audit = _writable(audit_id)
     if not gemini.configured():
         raise HTTPException(503, "Gemini is not configured on the API server (GEMINI_API_KEY).")
     if body.use_public_imagery:
@@ -157,7 +157,7 @@ async def start_analysis(audit_id: str, body: AnalysisIn, background: Background
 def apply_candidates(audit_id: str, body: ApplyIn):
     """Count accepted accessible-stall candidates as marks on their image. Hand marks without a candidate are kept.
     Only `parking_stall` candidates count: symbols, aisles and ramps are supporting evidence, never counts."""
-    audit = _audit(audit_id)
+    audit = _writable(audit_id)
     ev = aerial_evidence(audit, body.evidence_id)
     geo = ev.geometry or {}
     hand = [p for p in geo.get("pins") or [] if not p.get("candidate_id")]
@@ -170,7 +170,7 @@ def apply_candidates(audit_id: str, body: ApplyIn):
 
 @router.post("/audits/{audit_id}/candidates/{candidate_id}")
 def review_candidate(audit_id: str, candidate_id: str, body: CandidateReviewIn):
-    audit = _audit(audit_id)
+    audit = _writable(audit_id)
     for ev in audit.evidence:
         ai = (ev.geometry or {}).get("ai") or {}
         c = next((c for c in ai.get("candidates", []) if c["id"] == candidate_id), None)

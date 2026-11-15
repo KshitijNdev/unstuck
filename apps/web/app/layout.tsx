@@ -31,6 +31,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </Link>
             <nav aria-label="Main" className="flex items-center gap-5 text-[0.95rem]">
               <Link href="/" className="font-medium hover:underline">Find a property</Link>
+              <Link href="/portfolio" className="font-medium hover:underline">Portfolio</Link>
             </nav>
           </div>
         </header>

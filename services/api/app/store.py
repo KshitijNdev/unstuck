@@ -56,10 +56,12 @@ def find_by_finding(finding_id: str) -> Audit | None:
 
 
 def usage_totals() -> dict:
-    """Model tokens summed over every audit in this database."""
+    """Model tokens summed over every audit in this database. Copies of featured screenings repeat the original's
+    usage without new model calls, so they are left out."""
     with _lock:
         rows = _connection().execute(
             "SELECT json_extract(body, '$.usage') FROM audits WHERE json_array_length(json_extract(body, '$.usage')) > 0"
+            " AND json_extract(body, '$.copied_from') IS NULL"
         ).fetchall()
     import json
     t = {"audits_with_agent": 0, "requests": 0, "input_tokens": 0, "cache_write_tokens": 0,

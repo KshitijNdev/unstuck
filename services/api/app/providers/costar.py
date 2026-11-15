@@ -27,6 +27,8 @@ PARKING_TYPE_NAMES = {0: "unknown", 1: "surface", 2: "surface tandem", 3: "cover
                       5: "industrial trailer", 8: "reserved"}
 CONSTRUCTION_COMPLETE, RENOVATION_FINISHED = 2, 4
 RIGHTS = "CoStar data extract, HackPrinceton 2026 hackathon use only"
+OWNER_ROLES = {7: "true owner", 3: "recorded owner"}  # ContactRole codes, in order of preference
+INDEX_VERSION = 2  # bump when _slim changes shape, so a stale cached index is rebuilt
 
 
 def _kit_dir() -> Path | None:
@@ -52,6 +54,10 @@ def _slim(r: dict[str, Any], crosswalk: dict[str, dict]) -> dict[str, Any] | Non
                if p.get("parkingType") in SURFACE_PARKING_TYPES and p.get("totalSpaces") is not None]
     address = cw.get("address") or " ".join(
         str(a[k]) for k in ("streetNumber", "streetDirection", "streetName", "streetType") if a.get(k))
+    # Owner as CoStar identifies it: the true owner's company location id, else the recorded owner's.
+    # The extract has no owner names, so the id is all a portfolio can group by.
+    contacts = r.get("contacts") or []
+    owner = next((c for role in OWNER_ROLES for c in contacts if c.get("contactRole") == role and c.get("locationId")), None)
     return {
         "id": r["id"], "name": r.get("buildingName") or address or f"CoStar property {r['id']}",
         "address": address or None, "city": a.get("city"), "state": a.get("state"),
@@ -60,6 +66,8 @@ def _slim(r: dict[str, Any], crosswalk: dict[str, dict]) -> dict[str, Any] | Non
         "surface_spaces": sum(surface) if surface else None, "parking": parking,
         "stories": r.get("numStoriesAboveGrade"), "rentable_sf": r.get("rentableBuildingAreaSquareFeet"),
         "model_ids": cw.get("models", []),
+        "owner_id": owner["locationId"] if owner else None,
+        "owner_basis": OWNER_ROLES[owner["contactRole"]] if owner else None,
     }
 
 
@@ -68,7 +76,7 @@ def _load(kit: str) -> dict[int, dict[str, Any]]:
     """Build (or read a cached copy of) the slim index. The source file is about 190 MB."""
     d = Path(kit)
     src = d / "data" / "commercial-property.jsonl"
-    cache = d.parent / "costar_index.json"
+    cache = d.parent / f"costar_index_v{INDEX_VERSION}.json"
     if cache.is_file() and cache.stat().st_mtime >= src.stat().st_mtime:
         return {int(k): v for k, v in json.loads(cache.read_text()).items()}
     crosswalk: dict[str, dict] = {}

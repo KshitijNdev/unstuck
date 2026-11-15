@@ -192,6 +192,7 @@ export interface Audit {
   narrative: string | null;
   usage: ModelUsage[];
   is_synthetic: boolean;
+  copied_from?: string | null;   // a featured screening this one copies; no provider was called for the copy
   started_at: string;
   plan: string[];
   data_availability: SourceStatus[];
@@ -253,6 +254,55 @@ export const checkIntegration = (provider: Integration["provider"]) =>
 export const getAudit = (id: string) => request<Audit>(`/api/audits/${id}`);
 export const createAudit = (body: unknown) =>
   request<{ audit_id: string }>("/api/audits", { method: "POST", body: JSON.stringify(body) });
+
+/** A finished screening the operator pinned to the landing page. Counts match the action plan's three groups. */
+export interface FeaturedAudit {
+  id: string;
+  name: string;
+  address: string | null;
+  type: string | null;
+  year_built: number | null;
+  started_at: string;
+  completed_at: string | null;
+  engine: string;
+  is_synthetic: boolean;
+  counts: { act: number; verify: number; passed: number };
+  sources: string[];
+}
+export const getFeatured = () => request<{ audits: FeaturedAudit[] }>("/api/audits/featured");
+/** Featured originals are read-only; opening one gives the visitor their own copy. No provider or AI call. */
+export const copyAudit = (id: string) =>
+  request<{ audit_id: string; copied_from: string }>(`/api/audits/${id}/copy`, { method: "POST" });
+
+export interface PortfolioReason { code: "lot_unknown" | "large_lot" | "year_unknown" | "pre_ada" | "no_scan" | "no_aerial"; points: number; label: string }
+/** One building before any screening: Table 208.2 minimums for the recorded surface spaces, and a measuring order. */
+export interface PortfolioRow {
+  id: number;
+  name: string;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  type: string | null;
+  year_built: number | null;
+  surface_spaces: number | null;
+  required_accessible: number | null;
+  required_van: number | null;
+  pre_ada: boolean;
+  scans: number;
+  vexcel_region: string | null;
+  points: number;
+  reasons: PortfolioReason[];
+}
+export interface Portfolio {
+  owners: { id: number; buildings: number }[];
+  owner: number | null;
+  properties: PortfolioRow[];
+  totals: { buildings: number; required_accessible: number; lot_unknown: number; pre_ada: number; no_scan: number; no_aerial: number };
+  rights: string;
+  available: boolean;
+}
+export const getPortfolio = (owner: number | null, q = "") =>
+  request<Portfolio>(`/api/portfolio?${new URLSearchParams({ ...(owner != null ? { owner: String(owner) } : {}), q })}`);
 export const addMeasurement = (id: string, body: unknown) =>
   request<unknown>(`/api/audits/${id}/measurements`, { method: "POST", body: JSON.stringify(body) });
 export const saveMarkups = (id: string, pins: Pin[], reviewed_by: string, evidence_id?: string) =>

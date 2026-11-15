@@ -184,6 +184,7 @@ class Audit(BaseModel):
     started_at: str = Field(default_factory=now_iso)
     completed_at: str | None = None
     is_synthetic: bool = False
+    copied_from: str | None = None      # a featured screening this one was copied from (no providers were called)
     plan: list[str] = []
     data_availability: list[SourceStatus] = []
     property: Property | None = None

@@ -7,7 +7,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { IntegrationsPanel } from "@/components/IntegrationsPanel";
 import { Pipeline } from "@/components/Pipeline";
 import type { Shot } from "@/components/LandingScene";
-import { createAudit, getSources, searchProperties, type CostarHit, type Integration } from "@/lib/api";
+import Link from "next/link";
+import { copyAudit, createAudit, getFeatured, getSources, searchProperties, type CostarHit, type FeaturedAudit, type Integration } from "@/lib/api";
 
 const LandingScene = dynamic(() => import("@/components/LandingScene"), { ssr: false });
 
@@ -81,6 +82,7 @@ export default function Home() {
   const [coordsOpen, setCoordsOpen] = useState(false);
   const [igOpen, setIgOpen] = useState(false);
   const [integrations, setIntegrations] = useState<Integration[] | null>(null);
+  const [featured, setFeatured] = useState<FeaturedAudit[]>([]);
   const [form, setForm] = useState({ name: "", address: "", lat: "", lon: "" });
   const pinEls = useRef<Record<string, HTMLElement | null>>({});
   const inputRef = useRef<HTMLInputElement>(null);
@@ -114,6 +116,8 @@ export default function Home() {
   }, [pin]);
 
   useEffect(() => { getSources().then((r) => setIntegrations(r.integrations)).catch(() => setIntegrations(null)); }, [igOpen]);
+  // Finished screenings the team pinned: they open instantly and need no sponsor or AI call, a safety net for demos.
+  useEffect(() => { getFeatured().then((r) => setFeatured(r.audits)).catch(() => setFeatured([])); }, []);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -230,12 +234,16 @@ export default function Home() {
 
   const toSearch = () => { goTo(0); setTimeout(() => inputRef.current?.focus({ preventScroll: true }), reduced ? 0 : 650); };
 
-  async function start(body: Record<string, unknown>) {
+  const start = (body: Record<string, unknown>) => launch(() => createAudit({ standard_profile: "ADA_2010_SCREEN", ...body }));
+  // A featured original is read-only; the visitor gets their own copy, made from stored results with no provider calls.
+  const openFeatured = (id: string) => launch(() => copyAudit(id));
+
+  async function launch(open: () => Promise<{ audit_id: string }>) {
     setLaunching(true);
     setError(null);
     try {
       const [{ audit_id }] = await Promise.all([
-        createAudit({ standard_profile: "ADA_2010_SCREEN", ...body }),
+        open(),
         new Promise((r) => setTimeout(r, reduced ? 0 : 750)),  // let the camera finish its dive
       ]);
       router.push(`/audits/${audit_id}`);
@@ -411,7 +419,29 @@ export default function Home() {
                 Open the demo property
               </button>
               <button type="button" aria-expanded={coordsOpen} onClick={() => setCoordsOpen(!coordsOpen)}>Enter coordinates</button>
+              <Link href="/portfolio">Triage a portfolio</Link>
             </motion.div>
+            {featured.length > 0 && !showResults && !coordsOpen && (
+              <motion.section className="lx-recent" aria-labelledby="lx-recent-title" {...enter(0.8)}>
+                <h2 id="lx-recent-title">Finished screenings <span>open instantly, with your own copy to edit</span></h2>
+                <ul>
+                  {featured.slice(0, 3).map((a) => (
+                    <li key={a.id}>
+                      <button type="button" onClick={() => openFeatured(a.id)} disabled={launching}>
+                        <strong>{a.name}</strong>
+                        <span>
+                          {[a.type, a.year_built && `built ${a.year_built}`].filter(Boolean).join(", ")}
+                          {a.is_synthetic ? " · synthetic demo" : ""}
+                        </span>
+                        <span className="lx-recent-counts">
+                          <i className="act">{a.counts.act} to act on</i><i className="verify">{a.counts.verify} to verify</i><i className="pass">{a.counts.passed} passed</i>
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </motion.section>
+            )}
             <AnimatePresence initial={false}>
               {coordsOpen && (
                 <motion.form key="coords" className="lx-coords" initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}

@@ -17,6 +17,9 @@ A commercial landlord or property manager who wants to know where accessibility 
 3. **Screen.** A pure-Python rule engine compares structured measurements against the standards. No language model does any arithmetic.
 4. **Ask a person for what it cannot know.** You mark accessible stalls directly on the aerial image, or enter a door width measured on site or in the 3D tour. The checks re-run immediately.
 5. **Report.** A printable action plan groups results into act on, measure next, and meets threshold, with a JSON export and a full audit trail.
+6. **Measure on site.** A one-page field checklist lists what still needs a tape measure, in a visitor's order from the lot to the door and inside, narrowest scan doorways first. Print it, or scan its QR code and enter readings on a phone; each reading re-runs the check.
+7. **Triage a portfolio.** For every CoStar building, or one owner's, a sortable list shows the Table 208.2 stall minimum for the recorded lot, year built and scan coverage, ordered by what most needs measuring. No AI calls.
+8. **Open a finished screening.** The landing page can show two or three finished screenings that open instantly, as a free copy you can edit.
 
 Every result is labelled **measured**, **suspected** or **review needed**, with its source, method and reviewer.
 
@@ -49,6 +52,9 @@ Missing or unverified inputs return "needs field measurement". Nothing is defaul
 | Cost estimates, tax savings | Not shown. No sourced assumptions exist |
 | Vexcel capture date | Vexcel's own estimate (`metadata.ortho-date-estimate` from `property/extract`), with the layer and collection. The image is then fetched from that same layer so the date applies to it. Shown as unknown when Vexcel has no parcel at the site |
 | "Built before the ADA" | A labelled context note when CoStar's year built is before 1992. Background only: it never creates a finding or changes a result |
+| Portfolio owners | Grouped by CoStar's true-owner company ID (recorded owner as a fallback). The extract has no owner names, so owners show as IDs |
+| Portfolio order | A measuring order from the record and coverage alone, with each point explained. Not a risk score and never a finding. Stall minimums assume the recorded surface spaces are one lot |
+| Featured screenings | Real finished audits chosen by the operator (`UNSTUCK_FEATURED_AUDITS`). The originals are read-only; opening one copies its stored results with no provider or AI call |
 
 ## Run it
 
@@ -88,8 +94,9 @@ services/api    FastAPI
   app/providers   costar, vexcel, matterport, usgs (public fallback), fixture (synthetic)
   app/agents      orchestrator.py: LangChain Deep Agent (deepagents) with three subagents over the same steps
   app/pipeline    runner.py (shared steps, scripted fallback, event log), evaluate.py (measurements -> findings)
-  app/routes      audits, events (SSE), measurements, image marks, review, export
-  tests           107 tests: every threshold boundary, missing-data behaviour, API contracts, the Deep Agent graph with a scripted model, doorway screening, token accounting
+  app/routes      audits, events (SSE), measurements, image marks, review, export, featured + copy, portfolio
+  app/portfolio.py  portfolio triage: Table 208.2 minimums and the measuring order, no provider calls
+  tests           143 tests: every threshold boundary, missing-data behaviour, API contracts, the Deep Agent graph with a scripted model, doorway screening, token accounting, featured copies, portfolio triage
 docs/HANDOFF.md Full product and engineering brief
 ```
 
@@ -132,7 +139,7 @@ Automated tools catch only part of WCAG, and no screen-reader user has tested th
 
 - Vision-proposed stall candidates on the Vexcel image, confirmed by a person
 - Vexcel oblique views and object detection
-- Owner portfolio view: rank your own buildings by what most needs measuring
+- Owner names in the portfolio view, from a source that has them
 
 ## Sources
 

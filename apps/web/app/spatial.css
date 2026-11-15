@@ -765,9 +765,114 @@ details.av-step-body[open] summary::before { content: "▾"; }
 }
 @media (max-width: 900px) { .rp-body { grid-template-columns: minmax(0, 1fr); gap: 2rem; } }
 .av-step-note { display: block; flex-basis: 100%; margin-top: .1rem; font-weight: 400; color: var(--ink); font-size: .9rem; line-height: 1.45; }
+<<<<<<< Updated upstream
 /* The tour's ruler panel and the doorway note share one column beside the tour (ruler on top, note under it),
    and the tour narrows to make room, so neither covers the other or Matterport's own controls. */
 .st-measure { left: .75rem; top: 4.4rem; width: 300px; max-height: calc(100% - 8.8rem); overflow-y: auto; }
 .st-canvas:has(.st-measure) .st-tour { left: calc(300px + 1.5rem); width: calc(100% - var(--inset) - 300px - 2.25rem); }
 .st-canvas:has(.st-measure) .st-locnote { top: auto; bottom: 4.4rem; max-height: calc(50% - 5.4rem); }
 .st-canvas:has(.st-measure):has(.st-locnote) .st-measure { max-height: calc(50% - 5.4rem); }
+=======
+
+/* ---- Landing: links beside the demo, and finished screenings that open instantly (a free, offline-safe demo path). */
+.lx-alt { flex-wrap: wrap; row-gap: .5rem; }
+.lx-alt a { font-size: .92rem; font-weight: 600; color: var(--sign); text-decoration: underline; text-decoration-color: rgba(20,80,163,.35); text-underline-offset: 4px; transition: text-decoration-color 140ms; }
+.lx-alt a:hover { text-decoration-color: var(--sign); }
+.lx-recent h2 { font-size: .84rem; font-weight: 600; color: var(--ink); margin-bottom: .45rem; }
+.lx-recent h2 span { font-weight: 400; color: var(--muted); }
+.lx-recent ul { display: grid; gap: .45rem; }
+.lx-recent button { width: 100%; display: grid; gap: .1rem; text-align: left; padding: .6rem .85rem; border-radius: 10px; cursor: pointer;
+  background: rgba(247,247,243,.94); border: 1px solid var(--line); box-shadow: 0 6px 18px rgba(23,33,43,.08); transition: border-color 140ms, transform 140ms; }
+.lx-recent button:hover:not(:disabled), .lx-recent button:focus-visible { border-color: var(--sign); transform: translateY(-1px); }
+.lx-recent button:disabled { opacity: .55; cursor: progress; }
+.lx-recent strong { font-weight: 600; }
+.lx-recent span { font-size: .82rem; color: var(--muted); }
+.lx-recent-counts { display: flex; flex-wrap: wrap; gap: .1rem .8rem; }
+.lx-recent-counts i { font-style: normal; font-weight: 600; }
+.lx-recent-counts .act { color: var(--fail); } .lx-recent-counts .verify { color: var(--review); } .lx-recent-counts .pass { color: var(--pass); }
+
+/* ---- Field checklist: one page for the person with the tape measure; boxes on paper, inputs on a phone. */
+.ck { max-width: 980px; }
+.ck-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2rem; align-items: start; padding-top: 2rem; }
+.ck-intro { margin-top: .9rem; max-width: 40rem; font-size: .95rem; }
+.ck-qr { display: grid; justify-items: center; gap: .4rem; width: 170px; padding: .75rem; background: #fff; border: 1px solid var(--line); }
+.ck-qr figcaption { font-size: .78rem; color: var(--muted); text-align: center; }
+.ck-who { display: flex; flex-wrap: wrap; gap: 1rem 2.5rem; align-items: end; margin: 1.5rem 0 .5rem; padding: .9rem 1rem; border: 1px solid var(--line); background: var(--sheet); }
+.ck-who label { display: grid; gap: .25rem; font-size: .9rem; font-weight: 600; min-width: 16rem; }
+.ck-date { font-size: .9rem; font-weight: 600; display: flex; gap: .5rem; align-items: end; }
+.ck-line { display: inline-block; min-width: 9rem; flex: 1; border-bottom: 1px solid var(--ink); height: 1.1rem; }
+.ck-area { margin-top: 1.75rem; }
+.ck-area h2 { font-family: "Barlow Condensed", sans-serif; font-size: 1.7rem; font-weight: 700; padding-bottom: .3rem; border-bottom: 2px solid var(--ink); }
+.ck-area-blurb { margin-top: .35rem; font-size: .9rem; color: var(--muted); }
+.ck-list { display: grid; }
+.ck-stop { display: grid; grid-template-columns: 2.2rem minmax(0, 1fr); gap: .75rem; padding: 1rem 0; border-bottom: 1px solid var(--line-soft); break-inside: avoid; }
+.ck-n { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%; border: 2px solid var(--ink); font-weight: 700; }
+.ck-body { display: grid; gap: .45rem; }
+.ck-stop-head { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; }
+.ck-stop h3 { font-size: 1.05rem; font-weight: 600; }
+.ck-stop h3 span { display: block; font-size: .88rem; font-weight: 400; color: var(--muted); }
+.ck-badges { display: flex; flex-wrap: wrap; gap: .3rem; justify-content: flex-end; }
+.ck-why { font-size: .92rem; font-weight: 600; }
+.ck-req { font-size: .92rem; }
+.ck-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: .6rem 1rem; align-items: end; margin-top: .2rem; }
+.ck-form label { display: grid; gap: .25rem; font-size: .88rem; font-weight: 500; }
+.ck-save { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; font-size: .88rem; color: var(--pass); }
+.ck-manual { display: flex; gap: .6rem; align-items: end; font-size: .92rem; }
+.ck-box { display: inline-block; width: 1rem; height: 1rem; border: 1.5px solid var(--ink); flex: none; }
+.ck-empty { margin-top: 1.5rem; padding: 1rem; border-left: 4px solid var(--pass); background: var(--pass-bg); }
+.ck-done ul { display: grid; gap: .4rem; margin-top: .6rem; font-size: .92rem; }
+.ck-done li { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.ck-foot { margin-top: 2rem; font-size: .84rem; color: var(--muted); }
+@media (max-width: 640px) {
+  .ck-head { grid-template-columns: minmax(0, 1fr); }
+  .ck-qr { display: none; }   /* on a phone you are already here */
+  .ck-stop-head { flex-direction: column; }
+  .ck-badges { justify-content: flex-start; }
+  .ck-form { grid-template-columns: minmax(0, 1fr); }
+  .ck-form input { font-size: 1.1rem; padding: .6rem .7rem; }
+}
+@media print {
+  .ck { padding-top: 0; }
+  .ck-head { padding-top: 0; }
+  .ck-who input, .ck-form input { border: 0; border-bottom: 1px solid #000; border-radius: 0; background: none; }
+  .ck-who input::placeholder { color: transparent; }
+  .ck-area h2 { break-after: avoid; }
+}
+
+/* ---- Portfolio triage: what the record already says, as a sortable measuring order. */
+.pf { padding-top: 2rem; padding-bottom: 3rem; display: grid; gap: 1.1rem; }
+.pf-head h1 { font-family: "Barlow Condensed", sans-serif; font-size: 2.75rem; font-weight: 700; line-height: 1; margin-top: .25rem; }
+.pf-lede { margin-top: .6rem; max-width: 46rem; color: var(--muted); }
+.pf-controls { display: flex; flex-wrap: wrap; gap: .75rem 1.25rem; }
+.pf-controls label { display: grid; gap: .25rem; font-size: .9rem; font-weight: 600; min-width: 18rem; }
+.pf-fine { font-size: .84rem; color: var(--muted); }
+.pf-totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); border: 1px solid var(--line); background: var(--sheet); }
+.pf-totals div { padding: .8rem 1rem; border-right: 1px solid var(--line-soft); }
+.pf-totals dt { font-size: .82rem; color: var(--muted); }
+.pf-totals dd { font-family: "Barlow Condensed", sans-serif; font-size: 2rem; font-weight: 700; line-height: 1.1; }
+.pf-auth { display: grid; gap: .3rem; }
+.pf-table-wrap { overflow-x: auto; border: 1px solid var(--line); background: var(--sheet); }
+.pf-table-wrap:focus-visible { outline: 2px solid var(--sign); outline-offset: 2px; }
+.pf-table { width: 100%; min-width: 60rem; border-collapse: collapse; font-size: .9rem; }
+.pf-table thead th { position: sticky; top: 0; background: var(--sheet); border-bottom: 2px solid var(--ink); text-align: left; padding: 0; }
+.pf-table thead th button { width: 100%; padding: .6rem .75rem; text-align: inherit; font-weight: 600; cursor: pointer; }
+.pf-table thead th button:hover { background: var(--sign-wash); }
+.pf-table thead th[aria-sort="ascending"] button, .pf-table thead th[aria-sort="descending"] button { color: var(--sign-deep); }
+.pf-table .num { text-align: right; }
+.pf-table tbody tr { border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+.pf-table tbody th, .pf-table tbody td { padding: .65rem .75rem; text-align: left; font-weight: 400; }
+.pf-table tbody td.num { text-align: right; }
+.pf-table tbody th strong { display: block; font-weight: 600; }
+.pf-table tbody th span { display: block; font-size: .82rem; color: var(--muted); }
+.pf-table td b { font-family: "Barlow Condensed", sans-serif; font-size: 1.5rem; line-height: 1; }
+.pf-chip { display: block; width: max-content; margin-left: auto; margin-top: .2rem; padding: .05rem .45rem; border-radius: 999px; font-size: .74rem; font-weight: 600; background: var(--sign-wash); color: var(--sign-deep); }
+.pf-sub { display: block; font-size: .78rem; color: var(--muted); }
+.pf-reasons { margin-top: .3rem; display: grid; gap: .15rem; text-align: left; font-size: .76rem; color: var(--muted); min-width: 14rem; }
+.pf-none { padding: 1.5rem; text-align: center; color: var(--muted); }
+.pf-how { max-width: 52rem; display: grid; gap: .6rem; font-size: .92rem; }
+.pf-how h2 { font-family: "Barlow Condensed", sans-serif; font-size: 1.5rem; font-weight: 700; }
+@media (max-height: 860px) {
+  .lx-recent button { padding: .45rem .75rem; }
+  .lx-recent button > span:not(.lx-recent-counts) { display: none; }   /* keep name and counts on short screens */
+}
+>>>>>>> Stashed changes
