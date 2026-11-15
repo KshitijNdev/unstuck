@@ -18,6 +18,34 @@ export function SyntheticBanner() {
   );
 }
 
+/** Arrow-key, Home and End movement inside a tab list or radio group (WAI-ARIA pattern): moves focus and selects. */
+export const rovingKeys = (role: "tab" | "radio") => (e: React.KeyboardEvent<HTMLElement>) => {
+  const items = Array.from(e.currentTarget.querySelectorAll<HTMLElement>(`[role="${role}"]:not([disabled])`));
+  const i = items.indexOf(document.activeElement as HTMLElement);
+  const to = ({ ArrowRight: i + 1, ArrowDown: i + 1, ArrowLeft: i - 1, ArrowUp: i - 1, Home: 0, End: items.length - 1 } as Record<string, number>)[e.key];
+  if (i < 0 || to === undefined) return;
+  e.preventDefault();
+  const next = items[(to + items.length) % items.length];
+  next.focus();
+  next.click();
+};
+
+/** Year before which a building predates the ADA's new-construction rules. Context only, never a finding. */
+export const ADA_CONTEXT_YEAR = 1992;
+export const builtBeforeAda = (year: number | null | undefined): year is number => year != null && year < ADA_CONTEXT_YEAR;
+
+/** Explains the pre-ADA badge. Context, not a finding: it never changes a status or a count. */
+export function PreAdaNote({ year, className = "" }: { year: number; className?: string }) {
+  return (
+    <p role="note" className={`pre-ada ${className}`}>
+      <strong><span className="pre-ada-tag">Context</span> Built {year}, before the ADA.</strong>{" "}
+      Buildings designed before {ADA_CONTEXT_YEAR} predate the ADA&rsquo;s new-construction requirements, so barriers are
+      more likely. Owners still have to remove existing barriers where that is readily achievable. This is background from
+      the CoStar year built, not a finding, and it does not change any result.
+    </p>
+  );
+}
+
 const STATE = {
   connected: { dot: "bg-pass", text: "Connected" },
   limited: { dot: "bg-paint", text: "Limited" },

@@ -103,7 +103,7 @@ body:has(.app-view) > header, body:has(.app-view) > footer { display: none; }
 .st-empty h3 { font-family: "Barlow Condensed", sans-serif; font-size: 1.7rem; font-weight: 700; color: #e6edf3; line-height: 1.1; }
 .st-empty p { max-width: 30rem; }
 .st-record { position: absolute; inset: 0; padding: 5rem 2.5rem 2rem; overflow: auto; }
-.st-record h3 { font-family: "Barlow Condensed", sans-serif; font-size: 2rem; font-weight: 700; color: #fff; }
+.st-record h2 { font-family: "Barlow Condensed", sans-serif; font-size: 2rem; font-weight: 700; color: #fff; }
 .st-record dl { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 1px; margin: 1.2rem 0; background: #243140; border: 1px solid #243140; max-width: 48rem; }
 .st-record dl div { background: #111a23; padding: .7rem .9rem; }
 .st-record dt { font-size: .85rem; color: #8fa1b1; text-transform: capitalize; }
@@ -319,12 +319,12 @@ body:has(.app-view) > header, body:has(.app-view) > footer { display: none; }
 .rp-group h2.fail { border-bottom-color: var(--fail); } .rp-group h2.review { border-bottom-color: var(--paint); } .rp-group h2.pass { border-bottom-color: var(--pass); }
 .rp-finding { display: grid; gap: .6rem; padding: 1.1rem 0; border-bottom: 1px solid var(--line-soft); break-inside: avoid; scroll-margin-top: 5rem; }
 .rp-finding-head { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; }
-.rp-finding h4 { font-size: 1.05rem; font-weight: 600; }
-.rp-finding h4 span { display: block; font-size: .88rem; font-weight: 400; color: var(--muted); }
+.rp-finding h3 { font-size: 1.05rem; font-weight: 600; }
+.rp-finding h3 span { display: block; font-size: .88rem; font-weight: 400; color: var(--muted); }
 .rp-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .5rem 1.5rem; font-size: .92rem; }
 .rp-grid dt { font-size: .8rem; color: var(--muted); }
 .rp-grid dd { font-weight: 600; }
-.rp-sub h5 { font-size: .85rem; font-weight: 600; }
+.rp-sub h4 { font-size: .85rem; font-weight: 600; }
 .rp-sub ul { margin-top: .2rem; padding-left: 1rem; list-style: disc; font-size: .88rem; display: grid; gap: .2rem; }
 .rp-meta { font-size: .84rem; color: var(--muted); }
 .rp-side { display: grid; gap: 1rem; align-content: start; font-size: .88rem; }
@@ -468,3 +468,42 @@ body:has(.lx) > header, body:has(.lx) > footer { display: none; }
 /* Provenance on two aligned lines (source, then status) instead of one line truncated twice. */
 .st-bl .st-hud { display: grid; grid-template-columns: 7px minmax(0, 1fr); column-gap: .5rem; row-gap: .05rem; align-items: center; }
 .st-bl .st-hud strong { grid-column: 2; min-width: 0; }
+
+/* ---------- pre-ADA context note: background only, never a finding ---------- */
+.au-chip.ctx { background: var(--sign-wash); color: var(--sign-deep); }
+.pre-ada { border-left: 4px solid var(--sign); background: var(--sign-wash); color: var(--ink); padding: .6rem 1rem; margin: .8rem 0; max-width: 44rem; font-size: .95rem; }
+.pre-ada-tag { display: inline-block; margin-right: .4rem; padding: 0 .45rem; border-radius: 999px; background: var(--sign); color: #fff; font-size: .78rem; letter-spacing: .02em; text-transform: uppercase; vertical-align: .1em; }
+.st-record .pre-ada.dark { background: #13263d; color: #dfe7ee; border-left-color: #6ea8ff; }
+.st-record .pre-ada.dark .pre-ada-tag { background: #6ea8ff; color: #0b1520; }
+
+/* ---------- keyboard ---------- */
+/* The default sign-blue ring is too dark on the stage; use a light ring there (over 3:1 on #0e151c). */
+.st-stage :focus-visible { outline-color: #8fc1ff; }
+.st-plane:focus-visible { outline: 3px solid #8fc1ff; outline-offset: -3px; }
+.st-hopper button { flex-shrink: 0; }
+.st-crosshair { position: absolute; width: calc(28px * var(--inv)); height: calc(28px * var(--inv)); transform: translate(-50%, -50%);
+  border: calc(2px * var(--inv)) solid #fff; border-radius: 50%; box-shadow: 0 0 0 calc(2px * var(--inv)) #0b1520; pointer-events: none; opacity: 0; }
+.st-plane:focus-visible .st-crosshair { opacity: 1; }
+
+/* ---------- narrow screens: stack the stage over the inspector so nothing is covered (WCAG 1.4.10 reflow) ---------- */
+@media (max-width: 900px) {
+  .app-view { display: block; height: auto; }
+  .au-bar { flex-wrap: wrap; gap: .5rem .75rem; }
+  .au-home { padding-right: .75rem; }
+  .au-id { flex-basis: calc(100% - 7rem); }
+  .au-actions { flex-wrap: wrap; flex-shrink: 1; gap: .5rem; width: 100%; }
+  .sw-grid { --inset: 0px; overflow: visible; }
+  .sw-grid > .st-stage { position: relative; inset: auto; height: 72svh; min-height: 420px; }
+  .sw-panel { position: static; width: auto; margin: 12px; box-shadow: none; border: 1px solid var(--line); }
+  .sw-tabpanel { overflow: visible; }
+  .st-top { right: .75rem; flex-wrap: wrap; }
+  .st-bl { max-width: calc(100% - 9rem); bottom: 3.6rem; }
+  .st-zoom { bottom: 3.6rem; }
+  .st-hopper { left: 50%; max-width: calc(100% - 1.5rem); }
+  .st-dock { left: 50%; width: calc(100% - 1.5rem); }
+  .st-record { padding: 7rem 1rem 1rem; }
+  .au-bar { position: relative; }
+  .au-ig { position: static; }
+  .au-ig-panel { left: var(--gutter); right: var(--gutter); top: 100%; width: auto; }
+}
+@media (max-width: 900px) { .rp-body { grid-template-columns: minmax(0, 1fr); gap: 2rem; } }

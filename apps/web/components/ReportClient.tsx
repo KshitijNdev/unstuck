@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { RouteReplay } from "@/components/RouteReplay";
 import { useEffect, useState } from "react";
-import { ErrorNote, StatusBadge, SyntheticBanner } from "@/components/ui";
+import { builtBeforeAda, ErrorNote, PreAdaNote, StatusBadge, SyntheticBanner } from "@/components/ui";
 import { API, CONFIDENCE, getAudit, type Audit, type Finding } from "@/lib/api";
 
 const GROUPS: { id: string; title: string; blurb: string; tone: string; pick: (f: Finding) => boolean }[] = [
@@ -25,7 +25,7 @@ function FindingDetail({ f, audit }: { f: Finding; audit: Audit }) {
   return (
     <li className="rp-finding" id={f.id}>
       <div className="rp-finding-head">
-        <h4>{f.title}<span>{f.location}</span></h4>
+        <h3>{f.title}<span>{f.location}</span></h3>
         <StatusBadge status={f.status} />
       </div>
       <dl className="rp-grid">
@@ -37,7 +37,7 @@ function FindingDetail({ f, audit }: { f: Finding; audit: Audit }) {
       <p><strong>Next step:</strong> {f.followup}</p>
       {measured.length > 0 && (
         <div className="rp-sub">
-          <h5>Measurements</h5>
+          <h4>Measurements</h4>
           <ul>
             {measured.map((m) => (
               <li key={m.id}>
@@ -86,6 +86,7 @@ export function ReportClient({ id }: { id: string }) {
             </p>
           </header>
           {audit.is_synthetic && <SyntheticBanner />}
+          {builtBeforeAda(audit.property.year_built) && <PreAdaNote year={audit.property.year_built} />}
 
           <section className="rp-outcome" aria-label="Outcome">
             {GROUPS.map((g) => {
@@ -111,7 +112,7 @@ export function ReportClient({ id }: { id: string }) {
           })}
         </div>
 
-        <aside className="rp-side">
+        <section className="rp-side" aria-label="About this report">
           <section className="rp-note">
             <h3>What this is</h3>
             <p>A screening of selected dimensions from the 2010 ADA Standards, with the evidence behind each check. Not a certified
@@ -165,7 +166,7 @@ export function ReportClient({ id }: { id: string }) {
               {audit.data_availability.filter((s) => s.state === "unavailable").map((s) => <li key={s.provider}>{s.provider}: unavailable.</li>)}
             </ul>
           </section>
-        </aside>
+        </section>
       </div>
       <section id="trip-replay" className="mt-10 border-t border-line pt-8" aria-labelledby="trip-replay-heading">
         <h2 id="trip-replay-heading" className="font-display text-[1.9rem] font-bold leading-none">The trip in</h2>

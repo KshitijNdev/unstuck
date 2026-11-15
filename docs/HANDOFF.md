@@ -393,6 +393,8 @@ Constraints: provider quotas, fairness, privacy, anti-abuse, and non-discriminat
 
 **100–120s — Close:** “Unstuck turns scattered building information into a clear accessibility action plan. Screening, not certification.”
 
+Closing line, added 15 Nov 2026: “And Unstuck passes its own audit. axe finds no WCAG 2.2 AA issues, Lighthouse scores it 100 for accessibility, and you can run the whole inspection, marking stalls included, from the keyboard.” Say “passes automated checks”, never “fully WCAG compliant”: no screen-reader user has tested it yet.
+
 ## 15. Contingency decision tree
 
 - **All three datasets + measured openings:** full two-pane 3D + aerial integrated demo; prioritize making one issue rock-solid.

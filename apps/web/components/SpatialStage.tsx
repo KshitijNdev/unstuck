@@ -2,7 +2,7 @@
 
 import { motion } from "motion/react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ErrorNote } from "@/components/ui";
+import { builtBeforeAda, ErrorNote, PreAdaNote, rovingKeys } from "@/components/ui";
 import { CATEGORY_LABEL, chooseModel, evidenceUrl, saveMarkups, type Audit, type Candidate, type Evidence, type Finding, type Pin,
   type Region } from "@/lib/api";
 
@@ -61,6 +61,23 @@ function Plane({ aspect, cam, setCam, animate, onPlace, inset, children }: {
   const drag = useRef<{ x: number; y: number; cx: number; cy: number; moved: boolean } | null>(null);
   const camRef = useRef(cam);
   useEffect(() => { camRef.current = cam; });
+  // Keyboard crosshair for placing marks, in image fractions. Arrow keys move it, Enter or Space places a mark.
+  const [cur, setCur] = useState({ x: 0.5, y: 0.5 });
+  const keyboard = !!onPlace || cam.k > 1;
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    const step = e.shiftKey ? 0.05 : 0.01;
+    const d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+    if (onPlace) {
+      if (d) setCur((c) => ({ x: Math.min(1, Math.max(0, c.x + d[0] * step)), y: Math.min(1, Math.max(0, c.y + d[1] * step)) }));
+      else if (e.key === "Enter" || e.key === " ") onPlace(cur.x, cur.y);
+      else return;
+    } else if (d && cam.k > 1) {
+      const px = e.shiftKey ? 160 : 48;
+      setCam({ ...cam, x: cam.x - d[0] * px, y: cam.y - d[1] * px });
+    } else return;
+    e.preventDefault();
+    e.stopPropagation();  // keep the stage's arrow-key check hopper from also firing
+  };
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -94,6 +111,10 @@ function Plane({ aspect, cam, setCam, animate, onPlace, inset, children }: {
 
   return (
     <div ref={ref} className={`st-plane ${onPlace ? "placing" : ""}`}
+      tabIndex={keyboard ? 0 : undefined} role={keyboard ? "application" : undefined} onKeyDown={keyboard ? onKeyDown : undefined}
+      aria-label={!keyboard ? undefined : onPlace
+        ? "Stall marking area. Arrow keys move the crosshair, Shift moves it further, Enter or Space places a mark."
+        : "Zoomed image. Arrow keys pan, Shift pans further."}
       onPointerDown={(e) => {
         if ((e.target as HTMLElement).closest("button")) return;
         drag.current = { x: e.clientX, y: e.clientY, cx: cam.x, cy: cam.y, moved: false };
@@ -123,6 +144,7 @@ function Plane({ aspect, cam, setCam, animate, onPlace, inset, children }: {
           ["--inv" as string]: 1 / cam.k,
         }}>
           {children}
+          {onPlace && <span className="st-crosshair" aria-hidden="true" style={{ left: `${cur.x * 100}%`, top: `${cur.y * 100}%` }} />}
         </div>
       )}
     </div>
@@ -258,7 +280,8 @@ export function SpatialStage({ audit, auditId, selected, onSelect, layer, setLay
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
-      if (marking || t.closest("input, textarea, select, [contenteditable], iframe")) return;
+      if (e.defaultPrevented || marking
+        || t.closest("input, textarea, select, [contenteditable], iframe, [role=tablist], [role=radiogroup], [role=dialog], [role=application]")) return;
       if (e.key === "ArrowRight") { e.preventDefault(); hop(1); }
       if (e.key === "ArrowLeft") { e.preventDefault(); hop(-1); }
     };
@@ -299,9 +322,10 @@ export function SpatialStage({ audit, auditId, selected, onSelect, layer, setLay
     <div className="st-stage">
       <div className="st-top">
         <div className="st-group st-left">
-        <div className="st-switch" role="tablist" aria-label="Evidence view">
+        <div className="st-switch" role="tablist" aria-label="Evidence view" onKeyDown={rovingKeys("tab")}>
           {layers.map((l) => (
-            <button key={l.id} role="tab" type="button" aria-selected={layer === l.id} onClick={() => { setMarking(false); setLayer(l.id); }}>
+            <button key={l.id} id={`st-tab-${l.id}`} role="tab" type="button" aria-selected={layer === l.id} aria-controls="st-view"
+              tabIndex={layer === l.id ? 0 : -1} onClick={() => { setMarking(false); setLayer(l.id); }}>
               {layer === l.id && <motion.span layoutId="st-view-pill" className="st-pill" transition={{ type: "spring", bounce: 0.18, duration: 0.45 }} />}
               <span className="st-switch-label">
                 <span className={`st-led ${l.ok ? "ok" : ""}`} aria-hidden="true" />{l.label}
@@ -311,9 +335,9 @@ export function SpatialStage({ audit, auditId, selected, onSelect, layer, setLay
           ))}
         </div>
           {layer === "aerial" && sources.length > 1 && (
-            <div className="st-seg quiet" role="radiogroup" aria-label="Aerial source">
+            <div className="st-seg quiet" role="radiogroup" aria-label="Aerial source" onKeyDown={rovingKeys("radio")}>
               {sources.map((s) => (
-                <button key={s.id} type="button" role="radio" aria-checked={s.id === site?.id}
+                <button key={s.id} type="button" role="radio" aria-checked={s.id === site?.id} tabIndex={s.id === site?.id ? 0 : -1}
                   onClick={() => { setMarking(false); onFocus(null); setAerialId(s.id); }}>
                   {s.provider}
                 </button>
@@ -331,7 +355,7 @@ export function SpatialStage({ audit, auditId, selected, onSelect, layer, setLay
         )}
       </div>
 
-      <div ref={canvas} className="st-canvas">
+      <div ref={canvas} id="st-view" className="st-canvas" role="tabpanel" aria-labelledby={`st-tab-${layer}`}>
         {layer === "aerial" && !site && (
           <Unavailable title="No aerial view for this property">
             Neither Vexcel imagery nor a site plan is available. Exterior checks need a person to record what they see on site.
@@ -417,8 +441,9 @@ export function SpatialStage({ audit, auditId, selected, onSelect, layer, setLay
           <Unavailable title="No property record">CoStar didn’t return a record for this property, so its use type and size are unknown.</Unavailable>
         )}
         {layer === "record" && record && (
-          <div className="st-record">
-            <h3>{audit.property.name}</h3>
+          <div className="st-record" role="region" aria-labelledby="st-record-h" tabIndex={0}>
+            <h2 id="st-record-h">{audit.property.name}</h2>
+            {builtBeforeAda(audit.property.year_built) && <PreAdaNote year={audit.property.year_built} className="dark" />}
             <dl>
               {Object.entries(record.geometry?.summary ?? {}).filter(([, v]) => v !== null && typeof v !== "object").map(([k, v]) => (
                 <div key={k}><dt>{k.replaceAll("_", " ")}</dt><dd>{String(v)}</dd></div>
@@ -438,7 +463,7 @@ export function SpatialStage({ audit, auditId, selected, onSelect, layer, setLay
             <label><input type="radio" name="kind" checked={kind === "van"} onChange={() => setKind("van")} /> Van-accessible</label>
           </fieldset>
           <p aria-live="polite">
-            {pins.length} marked, {pins.filter((p) => p.kind === "van").length} van. Click a stall to add one; click a mark to remove it.
+            {pins.length} marked, {pins.filter((p) => p.kind === "van").length} van. Click a stall to add one, or focus the image and use the arrow keys and Enter. Activate a mark to remove it.
           </p>
           <label className="st-name">Your name
             <input className="field" required maxLength={80} value={who} onChange={(e) => setWho(e.target.value)} />

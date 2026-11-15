@@ -111,6 +111,7 @@ export default function Home() {
   const selected = hits?.find((h) => h.id === selectedId) ?? null;
   const showResults = !selected && (focused || query.length > 0) && hits !== null;
   const shot: Shot = !entered ? "entry" : launching ? "launch" : selected ? "selected" : pin ?? (showResults ? "search" : "intro");
+  const pinsOn = entered && !selected && !showResults && !launching;
   // Positive offset moves the building right of the copy; negative centres it left of the preview sheet.
   const offset = selected ? -270 : 330;
 
@@ -273,7 +274,7 @@ export default function Home() {
       </AnimatePresence>
 
       {/* Scene pins: positioned every frame by the scene, explained on hover or focus. */}
-      <div className={`lx-pins ${entered && !selected && !showResults && !launching ? "on" : ""}`} aria-label="What a screening checks">
+      <div className={`lx-pins ${pinsOn ? "on" : ""}`} role="group" aria-label="What a screening checks" inert={!pinsOn}>
         {PINS.map((p, i) => (
           <div key={p.id} ref={(el) => { pinEls.current[p.id] = el; }} className={`lx-pin ${p.side}`} style={{ ["--d" as string]: `${0.9 + i * 0.12}s` }}>
             <button type="button" aria-pressed={pin === p.id} aria-describedby={hoverPin === p.id || pin === p.id ? `lx-note-${p.id}` : undefined}

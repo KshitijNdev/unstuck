@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { FindingCard } from "@/components/FindingCard";
 import { aerialSources, layerOf, SpatialStage, type Layer } from "@/components/SpatialStage";
 import { SuggestionsPanel } from "@/components/SuggestionsPanel";
-import { StatusBadge } from "@/components/ui";
+import { rovingKeys, StatusBadge } from "@/components/ui";
 import { startAnalysis, type Audit, type Finding } from "@/lib/api";
 import { RouteReplay } from "@/components/RouteReplay";
 
@@ -19,6 +19,18 @@ const FILTERS: { id: Filter; label: string; test: (f: Finding) => boolean }[] = 
 type Tab = "checks" | "suggestions" | "log" | "trip";
 const REVIEWER_KEY = "unstuck.reviewer";
 const INSET = 440 + 16 * 2;  // floating inspector width plus its margins
+const NARROW = "(max-width: 900px)";  // matches spatial.css: below this the inspector stacks under the stage
+
+function useNarrow() {
+  const [narrow, setNarrow] = useState(() => window.matchMedia(NARROW).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(NARROW);
+    const on = () => setNarrow(mq.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  return narrow;
+}
 
 export function SpatialWorkspace({ audit, auditId, selected, onSelect, onChanged, log }: {
   audit: Audit; auditId: string; selected: Finding | null; onSelect: (id: string) => void;
@@ -35,6 +47,7 @@ export function SpatialWorkspace({ audit, auditId, selected, onSelect, onChanged
   const [reviewer, setReviewerState] = useState(() => localStorage.getItem(REVIEWER_KEY) ?? "");
   const setReviewer = (v: string) => { setReviewerState(v); localStorage.setItem(REVIEWER_KEY, v); };
   const openRef = useRef<HTMLLIElement>(null);
+  const narrow = useNarrow();
 
   const sources = aerialSources(audit);
   const site = sources.find((e) => e.id === aerialId) ?? sources[0];
@@ -129,18 +142,20 @@ export function SpatialWorkspace({ audit, auditId, selected, onSelect, onChanged
       <SpatialStage audit={audit} auditId={auditId} selected={selected} layer={layer} setLayer={setLayer}
         onSelect={(id) => { const f = audit.findings.find((x) => x.id === id); if (f) { choose(f); setTab("checks"); } }}
         onChanged={onChanged} aerialId={site?.id ?? null} setAerialId={setAerialId}
-        focusId={focusId} onFocus={focusCandidate} analysis={analyzeControl} inset={INSET} />
+        focusId={focusId} onFocus={focusCandidate} analysis={analyzeControl} inset={narrow ? 0 : INSET} />
 
-      <aside className="sw-panel" aria-label="Inspector">
-        <div className="sw-tabs" role="tablist" aria-label="Inspector">
+      <section className="sw-panel" aria-labelledby="sw-h">
+        <h2 id="sw-h" className="sr-only">Inspector</h2>
+        <div className="sw-tabs" role="tablist" aria-label="Inspector" onKeyDown={rovingKeys("tab")}>
           {tabs.map((t) => (
-            <button key={t.id} role="tab" type="button" aria-selected={tab === t.id} aria-controls={`sw-${t.id}`} onClick={() => setTab(t.id)}>
+            <button key={t.id} id={`sw-tab-${t.id}`} role="tab" type="button" aria-selected={tab === t.id} aria-controls={`sw-${t.id}`}
+              tabIndex={tab === t.id ? 0 : -1} onClick={() => setTab(t.id)}>
               {t.label}{t.badge != null && <span className="sw-badge">{t.badge}</span>}
             </button>
           ))}
         </div>
 
-        <div id="sw-checks" role="tabpanel" hidden={tab !== "checks"} className="sw-tabpanel">
+        <div id="sw-checks" role="tabpanel" aria-labelledby="sw-tab-checks" hidden={tab !== "checks"} className="sw-tabpanel">
           <div className="sw-tally" aria-label="Result summary">
             <span className={count(FILTERS[1].test) ? "bad" : ""}><b>{count(FILTERS[1].test)}</b>below threshold</span>
             <span><b>{count(FILTERS[2].test)}</b>need a person</span>
@@ -180,7 +195,7 @@ export function SpatialWorkspace({ audit, auditId, selected, onSelect, onChanged
           </ul>
         </div>
 
-        <div id="sw-suggestions" role="tabpanel" hidden={tab !== "suggestions"} className="sw-tabpanel">
+        <div id="sw-suggestions" role="tabpanel" aria-labelledby="sw-tab-suggestions" hidden={tab !== "suggestions"} className="sw-tabpanel">
           <SuggestionsPanel auditId={auditId} site={site} run={run} reviewer={reviewer} setReviewer={setReviewer}
             focusId={focusId} onFocus={focusCandidate} onChanged={onChanged} error={aiError}
             analyze={canAnalyze && !running ? (blocked ? (
@@ -191,13 +206,13 @@ export function SpatialWorkspace({ audit, auditId, selected, onSelect, onChanged
             ) : <button type="button" className="btn btn-primary btn-sm" onClick={() => analyze(false)}>Analyze imagery</button>) : null} />
         </div>
 
-        <div id="sw-log" role="tabpanel" hidden={tab !== "log"} className="sw-tabpanel sw-log">{log}</div>
+        <div id="sw-log" role="tabpanel" aria-labelledby="sw-tab-log" tabIndex={0} hidden={tab !== "log"} className="sw-tabpanel sw-log">{log}</div>
 
-        <div id="sw-trip" role="tabpanel" hidden={tab !== "trip"} className="sw-tabpanel">
+        <div id="sw-trip" role="tabpanel" aria-labelledby="sw-tab-trip" hidden={tab !== "trip"} className="sw-tabpanel">
           {/* Mounted only while open so the replay starts from the kerb each time. */}
           {tab === "trip" && <RouteReplay findings={audit.findings} compact />}
         </div>
-      </aside>
+      </section>
     </section>
   );
 }

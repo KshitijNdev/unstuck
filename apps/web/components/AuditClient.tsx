@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SpatialWorkspace } from "@/components/SpatialWorkspace";
 import { IntegrationsPanel } from "@/components/IntegrationsPanel";
-import { ErrorNote } from "@/components/ui";
+import { builtBeforeAda, ErrorNote } from "@/components/ui";
 import { API, getAudit, type AgentEvent, type Audit } from "@/lib/api";
 
 const EVENT_ICON: Record<string, string> = {
@@ -214,6 +214,11 @@ export function AuditClient({ id }: { id: string }) {
         <div className="au-actions">
           {audit?.is_synthetic && <span className="au-chip" title="This property does not exist and no value was observed at a real building.">Synthetic demo data</span>}
           {audit?.status === "FAILED" && <span className="au-chip bad">Audit stopped early</span>}
+          {builtBeforeAda(audit?.property.year_built) && (
+            <span className="au-chip ctx" title="Context only, not a finding. Details are on the Property record layer and in the action plan.">
+              Context: built before the ADA
+            </span>
+          )}
           <div className="au-ig" ref={igRef}>
             <button type="button" className="btn btn-sm" aria-expanded={showIg} aria-controls="au-ig-panel" onClick={() => setShowIg(!showIg)}>
               Integrations &amp; AI
