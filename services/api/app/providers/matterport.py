@@ -27,7 +27,8 @@ BASICS = """query Basics($id: ID!) { model(id: $id) {
   address { address locality administrativeArea postalCode }
   geolocation { lat long }
   propertyClassifications { classification type }
-  floors { id label edges { id type thickness vertices { position { x y } } openings { id type label width height relativeCenter } } }
+  floors { id label edges { id type thickness vertices { position { x y } }
+    openings { id type label width height lowerElevation relativeCenter } } }
   rooms { id classifications { label confidence } dimensions(units: metric) { areaFloor width depth height } }
   panoLocations { id }
 } }"""
@@ -50,7 +51,34 @@ def status() -> SourceStatus:
                         features=["model identity", "rooms and dimensions", "doorway openings", "3D tour embed"])
 
 
-async def fetch_model(client: httpx.AsyncClient, property_id: str, model_id: str) -> tuple[Evidence, dict[str, Any]]:
+async def measure_openings_in_mesh(client: httpx.AsyncClient, model_id: str, found: list[dict[str, Any]]) -> dict[str, Any]:
+    """Measure each doorway's free gap in the scan mesh (see scanmesh.py). Never raises: a scan without a usable
+    mesh simply keeps its floor-plan widths. Always strips the working geometry from the doorway rows."""
+    import asyncio
+    from . import scanmesh
+    try:
+        if not any(d.get("geom") for d in found):
+            return {"status": "no_positions"}
+        m = await _query(client, MESHES, model_id)
+        mesh = next((x for x in ((m.get("assets") or {}).get("meshes") or [])
+                     if x.get("format") == "obj" and x.get("resolution") == MESH_RESOLUTION
+                     and x.get("status") == "available" and x.get("url")), None)
+        if mesh is None:
+            return {"status": "no_mesh"}
+        r = await client.get(mesh["url"], timeout=90, follow_redirects=True)
+        r.raise_for_status()
+        confirmed = await asyncio.to_thread(scanmesh.measure_doorways, r.content, found)
+        return {"status": "measured", "resolution": MESH_RESOLUTION, "confirmed": confirmed,
+                "doorways": sum(1 for d in found if d.get("geom"))}
+    except Exception as e:  # network, format or access trouble: fall back to the floor plan alone
+        return {"status": "failed", "error": type(e).__name__}
+    finally:
+        for d in found:
+            d.pop("geom", None)
+
+
+async def fetch_model(client: httpx.AsyncClient, property_id: str, model_id: str, *,
+                      measure_mesh: bool = True) -> tuple[Evidence, dict[str, Any]]:
     auth = _auth()
     if not auth:
         raise PermissionError("Matterport credentials not configured")
@@ -79,6 +107,11 @@ async def fetch_model(client: httpx.AsyncClient, property_id: str, model_id: str
         "wall_graph_edge_types": dict(edge_types), "visibility": m.get("visibility"),
         "has_floor_plan": sum(edge_types.values()) > 0, "doorways": doorways(m), "floor_plan": floor_plan(m),
     }
+    if measure_mesh:
+        summary["mesh"] = await measure_openings_in_mesh(client, model_id, summary["doorways"])
+    else:
+        for d in summary["doorways"]:
+            d.pop("geom", None)
     public = m.get("visibility") in ("public", "unlisted")
     evidence = Evidence(
         id=f"ev_matterport_{property_id}", property_id=property_id, provider="Matterport",
@@ -95,6 +128,9 @@ async def fetch_model(client: httpx.AsyncClient, property_id: str, model_id: str
     )
     return evidence, summary
 
+
+MESHES = """query Meshes($id: ID!) { model(id: $id) { assets { meshes { format resolution status url } } } }"""
+MESH_RESOLUTION = "50k"   # the whole-building mesh; finer levels are split into chunks
 
 OVERVIEW = """query Overview($id: ID!) { model(id: $id) {
   id name propertyClassifications { classification }
@@ -169,4 +205,13 @@ def doorways(model: dict[str, Any]) -> list[dict[str, Any]]:
                     "width_in": round(w * M_TO_IN, 1) if isinstance(w, (int, float)) else None,
                     "wall_thickness_in": round(e["thickness"] * M_TO_IN, 1) if isinstance(e.get("thickness"), (int, float)) else None,
                 })
+                # Where the opening sits in the model, for measuring it in the mesh. Dropped once that is done.
+                pts = [(v.get("position") or {}) for v in e.get("vertices") or []]
+                if (len(pts) == 2 and all(isinstance(p.get(k), (int, float)) for p in pts for k in ("x", "y"))
+                        and isinstance(w, (int, float)) and isinstance(o.get("relativeCenter"), (int, float))):
+                    out[-1]["geom"] = {
+                        "a": [pts[0]["x"], pts[0]["y"]], "b": [pts[1]["x"], pts[1]["y"]], "centre": o["relativeCenter"],
+                        "width_m": w, "thickness_m": e.get("thickness"), "lower_m": o.get("lowerElevation"),
+                        "height_m": o.get("height"),
+                    }
     return sorted(out, key=lambda d: (d["width_in"] is None, d["width_in"] or 0))

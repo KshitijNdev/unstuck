@@ -213,3 +213,33 @@ def test_scan_opening_triage_uses_36_in_for_deep_openings():
 
 def test_implausible_scan_opening_gets_no_triage():
     assert "triage" not in r.screen_doorway_opening(12.0, 5.1).observed
+
+
+# ---- doorway openings confirmed in the scan's 3D mesh ---------------------------------------------------------------
+def test_mesh_confirmed_opening_narrows_the_band_but_never_passes():
+    # 36 in drawn and 35.8 in the mesh: 35.8 - 1 - 2.25 = 32.55 in, clear of the 32.5 in margin.
+    res = r.screen_doorway_opening(36.0, 5.1, 35.8)
+    assert res.status == r.FIELD and res.observed["triage"] == "likely_wide"
+    assert res.observed["accept_clear_in"] == 32.5 and res.observed["mesh_gap_in"] == 35.8
+    assert "A person can accept this estimate" in res.rationale
+    # Without the mesh the same doorway could go either way and offers nothing to accept.
+    plain = r.screen_doorway_opening(36.0, 5.1)
+    assert plain.observed["triage"] == "measure" and "accept_clear_in" not in plain.observed
+
+
+def test_mesh_confirmed_opening_close_to_the_minimum_still_needs_a_person():
+    res = r.screen_doorway_opening(34.0, 5.1, 34.0)   # 30.75 in at worst
+    assert res.observed["triage"] == "measure" and "accept_clear_in" not in res.observed
+
+
+def test_wide_opening_may_be_a_pair_of_doors():
+    # 66 in could be two 33 in leaves: one leaf would leave about 29.75 in, so it is not called wide.
+    res = r.screen_doorway_opening(66.0, 5.1, 66.0)
+    assert res.observed["triage"] == "measure" and "pair of doors" in res.rationale
+    # 72 in: one 36 in leaf leaves 36 - 1 - 2.25 = 32.75 in.
+    assert r.screen_doorway_opening(72.0, 5.1, 72.0).observed["accept_clear_in"] == 32.7
+
+
+def test_accepted_scan_estimate_is_a_usable_width():
+    assert r.check_door(32.6, 5.1, "scan_mesh").status == r.PASS
+    assert r.check_door(32.3, 5.1, "scan_mesh").status == r.FIELD   # inside the borderline margin

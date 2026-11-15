@@ -94,6 +94,10 @@ export interface Finding {
     triage?: "narrow" | "likely_narrow" | "measure" | "likely_wide";
     /** Scan doorways only: clear width a hinged door would leave, [low, high] in inches. An estimate. */
     clear_estimate_in?: [number, number];
+    /** Scan doorways only: free gap measured at this doorway in the scan's 3D mesh, when it matched the floor plan. */
+    mesh_gap_in?: number;
+    /** Scan doorways only: lower-bound clear width a person may accept in place of measuring. */
+    accept_clear_in?: number;
   } | null;
   status: FindingStatus;
   label: "measured" | "suspected" | "review needed";
@@ -263,6 +267,13 @@ export const reviewCandidate = (id: string, candidateId: string,
   request<Candidate>(`/api/audits/${id}/candidates/${candidateId}`, { method: "POST", body: JSON.stringify(body) });
 export const applyCandidates = (id: string, evidence_id: string, reviewer: string) =>
   request<unknown>(`/api/audits/${id}/candidates/apply`, { method: "POST", body: JSON.stringify({ evidence_id, reviewer }) });
+export const takeScanWidth = (id: string, doorId: string, door: "none" | "hinged", reviewed_by: string) =>
+  request<unknown>(`/api/audits/${id}/doors/${encodeURIComponent(doorId)}/use-scan-width`,
+    { method: "POST", body: JSON.stringify({ door, reviewed_by }) });
+export const acceptScanEstimates = (id: string, reviewed_by: string) =>
+  request<{ accepted: number }>(`/api/audits/${id}/doors/accept-scan-estimates`, { method: "POST", body: JSON.stringify({ reviewed_by }) });
+export const getMatterportSdk = () =>
+  request<{ available: boolean; application_key: string | null }>("/api/integrations/matterport/sdk");
 export const chooseModel = (id: string, model_id: string) =>
   request<unknown>(`/api/audits/${id}/model`, { method: "POST", body: JSON.stringify({ model_id }) });
 export const verifyFinding = (findingId: string, body: unknown) =>
@@ -285,6 +296,7 @@ export const CONFIDENCE: Record<string, string> = {
   FIELD_MEASURED: "Measured on site",
   MANUAL_ENTRY: "Counted or entered by a person",
   MODEL_METRIC: "Measured in the 3D scan",
+  SCAN_MESH_ACCEPTED: "Scan estimate, accepted by a person",
   PROPERTY_RECORD: "From property record",
   IMAGE_ESTIMATE_UNVERIFIED: "Image estimate, not verified",
   VISUAL_UNVERIFIED: "Seen in imagery, not measured",

@@ -237,7 +237,8 @@ def step_doorways(audit: Audit, actor: str = "interior_inspector") -> dict:
     # Forget doorways from any previously loaded scan.
     old = {d.id for d in prop.doors if d.source == "matterport_floorplan"}
     prop.doors = [d for d in prop.doors if d.id not in old]
-    audit.measurements = [m for m in audit.measurements if not (m.location_id in old and m.method == "scan_floorplan")]
+    audit.measurements = [m for m in audit.measurements
+                          if not (m.location_id in old and m.method in ("scan_floorplan", "scan_mesh"))]
     if tour is None:
         emit(audit, "SOURCE_MISSING", actor, "No 3D scan is loaded, so no doorway can be measured.", source_id="Matterport")
         return {"measured": 0, "reason": "no scan loaded"}
@@ -264,11 +265,23 @@ def step_doorways(audit: Audit, actor: str = "interior_inspector") -> dict:
             audit.measurements.append(Measurement(
                 id=f"m_{did}_t", audit_id=audit.id, location_id=did, name="door_wall_thickness_in",
                 value=d["wall_thickness_in"], unit="in", method="scan_floorplan", evidence_id=tour.id, notes=note))
+        if d.get("mesh_state") == "clear" and d.get("mesh_gap_in") is not None:
+            audit.measurements.append(Measurement(
+                id=f"m_{did}_g", audit_id=audit.id, location_id=did, name="door_mesh_gap_in", value=d["mesh_gap_in"],
+                unit="in", method="scan_mesh", evidence_id=tour.id,
+                notes=f"Free gap measured in scan {model_id}'s 3D mesh at opening {d['opening_id']}. "
+                      "Gap between the jambs, not clear width with the door open."))
     widths = [d["width_in"] for d in found if d["width_in"] is not None]
+    mesh = summ.get("mesh") or {}
+    states = [d.get("mesh_state") for d in found]
+    mesh_note = (f" The scan's 3D mesh confirms {states.count('clear')} of them as open gaps; "
+                 f"{states.count('blocked') + states.count('partly_blocked')} had a door or object in the opening."
+                 if mesh.get("status") == "measured" else
+                 " The scan's 3D mesh was not available, so widths come from the floor plan alone.")
     emit(audit, "FETCH_SUCCESS", actor,
          f"Measured {len(found)} doorway opening(s) in scan {model_id}'s floor plan"
          + (f", {min(widths):g} to {max(widths):g} in wide." if widths else ".")
-         + " These are frame openings; clear width is narrower.",
+         + " These are frame openings; clear width is narrower." + mesh_note,
          tool="matterport.floor_plan", source_id=f"Matterport:{model_id}", payload=found)
     return {"measured": len(found), "doorways": [{"label": f"Scan doorway {i}", "floor": d["floor"], "kind": d["kind"],
             "opening_width_in": d["width_in"]} for i, d in enumerate(found, 1)][:40],

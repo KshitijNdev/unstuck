@@ -7,7 +7,7 @@ import { aerialSources, layerOf, SpatialStage, type Layer } from "@/components/S
 import { SuggestionsPanel } from "@/components/SuggestionsPanel";
 import { RouteReplay } from "@/components/RouteReplay";
 import { rovingKeys, StatusBadge } from "@/components/ui";
-import { getSources, startAnalysis, TRIAGE, type Audit, type Finding } from "@/lib/api";
+import { acceptScanEstimates, getSources, startAnalysis, TRIAGE, type Audit, type Finding } from "@/lib/api";
 
 type Filter = "all" | "below" | "review" | "meets" | "doors";
 const FILTERS: { id: Filter; label: string; test: (f: Finding) => boolean }[] = [
@@ -80,7 +80,18 @@ export function SpatialWorkspace({ audit, auditId, selected, onSelect, onChanged
   const count = (t: (f: Finding) => boolean) => audit.findings.filter(t).length;
   const band = (...names: string[]) => count((f) => names.includes(f.observed?.triage ?? ""));
   const doorBands = { first: band("narrow", "likely_narrow"), either: band("measure"), wide: band("likely_wide"),
-    total: band("narrow", "likely_narrow", "measure", "likely_wide") };
+    total: band("narrow", "likely_narrow", "measure", "likely_wide"),
+    mesh: count((f) => f.observed?.mesh_gap_in != null), offers: count((f) => f.observed?.accept_clear_in != null) };
+  const [accepting, setAccepting] = useState(false);
+  const [acceptError, setAcceptError] = useState<string | null>(null);
+  async function acceptEstimates(e: React.FormEvent) {
+    e.preventDefault();
+    setAccepting(true);
+    setAcceptError(null);
+    try { await acceptScanEstimates(auditId, reviewer); await onChanged(); }
+    catch (err) { setAcceptError((err as Error).message); }
+    finally { setAccepting(false); }
+  }
   const groups = new Map<string, Finding[]>();
   for (const f of visible) { const k = groupKey(f, group, audit); groups.set(k, [...(groups.get(k) ?? []), f]); }
   const toggle = (k: string) => setClosed((c) => { const n = new Set(c); if (n.has(k)) n.delete(k); else n.add(k); return n; });
@@ -195,11 +206,32 @@ export function SpatialWorkspace({ audit, auditId, selected, onSelect, onChanged
               <b>{count((f) => f.label === "measured")}</b>verified measurements</span>
           </div>
           {doorBands.total > 0 && (
-            <p className="sw-triage">
-              <strong>{doorBands.total} scan doorways sorted by width.</strong>{" "}
-              {doorBands.first} to measure first, {doorBands.either} could go either way, {doorBands.wide} likely wide
-              enough. Estimates from the floor plan; none is passed until measured.
-            </p>
+            <div className="sw-triage">
+              <p>
+                <strong>{doorBands.total} scan doorways sorted by width.</strong>{" "}
+                {doorBands.first} to measure first, {doorBands.either} could go either way, {doorBands.wide} likely wide
+                enough.{" "}
+                {doorBands.mesh > 0
+                  ? `The scan's 3D mesh confirmed ${doorBands.mesh} of the openings.`
+                  : "Estimates from the floor plan."}{" "}
+                None is passed until a person measures or accepts it.
+              </p>
+              {doorBands.offers > 0 && (
+                <form onSubmit={acceptEstimates}>
+                  <label>Your name
+                    <input required maxLength={80} value={reviewer} onChange={(e) => setReviewer(e.target.value)} />
+                  </label>
+                  <button type="submit" className="btn btn-primary btn-sm" disabled={accepting}>
+                    Accept {doorBands.offers} scan {doorBands.offers === 1 ? "estimate" : "estimates"}
+                  </button>
+                  <p>
+                    Records the scan&apos;s lower-bound clear width for the {doorBands.offers} mesh-confirmed wide{" "}
+                    {doorBands.offers === 1 ? "doorway" : "doorways"} under your name, in place of measuring each one.
+                  </p>
+                </form>
+              )}
+              {acceptError && <p role="alert" className="sw-triage-bad">{acceptError}</p>}
+            </div>
           )}
           <div className="sw-filters" role="group" aria-label="Filter checks">
             {FILTERS.map((f) => (

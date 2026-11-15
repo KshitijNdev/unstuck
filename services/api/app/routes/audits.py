@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import math
 import os
 import uuid
 
@@ -14,7 +15,7 @@ from .. import integrations, store
 from ..models import (MEASUREMENT_NAMES, Audit, CreateAudit, Measurement, MeasurementIn, Property,
                       SourceRef, VerifyIn, now_iso)
 from ..pipeline import runner
-from ..models import Door, Facility, ModelIn, PinsIn
+from ..models import AcceptEstimatesIn, Door, Facility, ModelIn, PinsIn, UseScanWidthIn
 from ..providers import costar, fixture, matterport, sources_status, vexcel
 from ..rules import ada2010
 
@@ -62,6 +63,14 @@ async def check_integration(provider: str):
     if provider not in integrations.PROVIDERS:
         raise HTTPException(404, f"Unknown integration. Known: {', '.join(integrations.PROVIDERS)}")
     return await integrations.check(provider)
+
+
+@router.get("/integrations/matterport/sdk")
+def matterport_sdk():
+    """The Matterport SDK application key for the embedded tour. SDK keys are meant for the browser and are
+    restricted by Matterport to the domains registered for them; the Model API token never leaves the server."""
+    key = os.environ.get("MATTERPORT_SDK_KEY") or None
+    return {"available": bool(key), "application_key": key}
 
 
 @router.get("/properties/demo")
@@ -193,6 +202,73 @@ def add_measurement(audit_id: str, body: MeasurementIn):
         store.save(audit)
         raise HTTPException(400, f"Measurement rejected: {e}")
     return {"measurement": m, "findings": audit.findings}
+
+
+@router.post("/audits/{audit_id}/doors/accept-scan-estimates")
+def accept_scan_estimates(audit_id: str, body: AcceptEstimatesIn):
+    """A person accepts the scan's lower-bound clear width for every doorway the 3D mesh shows comfortably wide,
+    in place of measuring each one. Only doorways whose check offers an estimate (observed.accept_clear_in) are
+    touched; the rule engine then screens them like any other recorded width. Nothing is accepted automatically."""
+    audit = _audit(audit_id)
+    if audit.status != "COMPLETE":
+        raise HTTPException(409, "Wait for the audit to finish before accepting estimates.")
+    offers = [f for f in audit.findings if (f.observed or {}).get("accept_clear_in") is not None]
+    if not offers:
+        raise HTTPException(404, "No doorway in this audit has a scan estimate to accept.")
+    for f in offers:
+        o = f.observed or {}
+        audit.measurements.append(Measurement(
+            id=f"m_{uuid.uuid4().hex[:8]}", audit_id=audit_id, location_id=f.location_id, name="door_clear_width_in",
+            value=o["accept_clear_in"], unit="in", method="scan_mesh", reviewed_by=body.reviewed_by,
+            evidence_id=(f.evidence_ids or [None])[0],
+            notes=f"Clear width is a lower-bound estimate accepted by {body.reviewed_by}: the {o.get('mesh_gap_in')} in "
+                  "gap measured in the scan's 3D mesh, less a door allowance and scan tolerance. The door was not measured."))
+    runner.emit(audit, "OBSERVATION_PROPOSED", "human_reviewer",
+                f"{body.reviewed_by} accepted the scan's lower-bound clear width for {len(offers)} doorway(s) "
+                "in place of measuring them.", payload=[f.location_id for f in offers])
+    runner.reevaluate(audit)
+    return {"accepted": len(offers), "findings": audit.findings}
+
+
+@router.post("/audits/{audit_id}/doors/{door_id}/use-scan-width")
+def use_scan_width(audit_id: str, door_id: str, body: UseScanWidthIn):
+    """A person looks at one scan doorway in the 3D tour, says what is there, and takes the scan's width for it.
+
+    No door in the opening: the opening is the clear width, so the scan's width is recorded as it is.
+    A single hinged door: the leaf and stop come off first (rules.DOOR_LEAF_AND_STOP_IN).
+    The value is the narrower of the floor-plan width and the mesh gap when both exist. The person vouches for
+    what kind of doorway it is, not for the number, and the record says so."""
+    audit = _audit(audit_id)
+    if audit.status != "COMPLETE":
+        raise HTTPException(409, "Wait for the audit to finish before recording door widths.")
+    door = next((d for d in audit.property.doors if d.id == door_id and d.source == "matterport_floorplan"), None)
+    if door is None:
+        raise HTTPException(404, "That is not a doorway from this audit's scan.")
+    latest = {m.name: m for m in audit.measurements if m.location_id == door_id}
+    opening, gap = latest.get("door_opening_width_in"), latest.get("door_mesh_gap_in")
+    if opening is None or opening.value < ada2010.SCAN_OPENING_MIN_PLAUSIBLE_IN:
+        raise HTTPException(400, "The scan has no usable width for this doorway. Measure it in the 3D tour instead.")
+    basis = min(opening.value, gap.value) if gap else opening.value
+    source = (f"the narrower of the floor plan's {opening.value:g} in and the 3D mesh's {gap.value:g} in"
+              if gap else f"the floor plan's {opening.value:g} in opening")
+    if body.door == "none":
+        value = basis
+        note = (f"Clear width taken as {source}: {body.reviewed_by} looked in the 3D tour and saw no door in this "
+                "opening, so the opening is the clear width. Scan dimension, not tape-measured.")
+    else:
+        value = basis - ada2010.DOOR_LEAF_AND_STOP_IN
+        note = (f"Clear width estimated as {source} less {ada2010.DOOR_LEAF_AND_STOP_IN:g} in for the door leaf and stop: "
+                f"{body.reviewed_by} looked in the 3D tour and saw a single hinged door. Scan dimension, not tape-measured.")
+    audit.measurements.append(Measurement(
+        id=f"m_{uuid.uuid4().hex[:8]}", audit_id=audit_id, location_id=door_id, name="door_clear_width_in",
+        value=math.floor(value * 10) / 10, unit="in", method="scan_mesh", reviewed_by=body.reviewed_by,
+        evidence_id=opening.evidence_id, notes=note))
+    runner.emit(audit, "OBSERVATION_PROPOSED", "human_reviewer",
+                f"{body.reviewed_by} took the scan's width for {door.label} "
+                f"({'no door in the opening' if body.door == 'none' else 'single hinged door'}).",
+                payload={"door": door_id, "kind": body.door, "value": value})
+    runner.reevaluate(audit)
+    return {"finding": next((f for f in audit.findings if f.location_id == door_id), None)}
 
 
 @router.post("/audits/{audit_id}/markups")

@@ -10,7 +10,7 @@ FindingStatus = Literal[
     "NUMERIC_SCREEN_FAIL", "NUMERIC_SCREEN_PASS", "SUSPECTED_VISUAL_BARRIER",
     "FIELD_VERIFICATION_REQUIRED", "INSUFFICIENT_DATA", "OUT_OF_SCOPE",
 ]
-MeasurementMethod = Literal["field", "manual", "model_metric", "record", "image_estimate", "scan_floorplan", "synthetic_demo_only"]
+MeasurementMethod = Literal["field", "manual", "model_metric", "record", "image_estimate", "scan_floorplan", "scan_mesh", "synthetic_demo_only"]
 ReviewStatus = Literal["NOT_REVIEWED", "APPROVED", "REJECTED", "NEEDS_FIELD_VISIT"]
 SourceState = Literal["connected", "limited", "unavailable"]
 EventType = Literal[
@@ -26,7 +26,7 @@ MEASUREMENT_NAMES = {
     "door_clear_width_in", "door_opening_depth_in",
 }
 # Read from a 3D scan's floor plan by the agent or pipeline; people cannot enter these.
-SCAN_MEASUREMENT_NAMES = {"door_opening_width_in", "door_wall_thickness_in"}
+SCAN_MEASUREMENT_NAMES = {"door_opening_width_in", "door_wall_thickness_in", "door_mesh_gap_in"}
 
 
 def now_iso() -> str:
@@ -223,6 +223,16 @@ class MeasurementIn(BaseModel):
     method: Literal["field", "manual", "model_metric"]
     reviewed_by: str = Field(min_length=1, max_length=80)
     notes: str | None = Field(default=None, max_length=500)
+
+
+class AcceptEstimatesIn(BaseModel):
+    reviewed_by: str = Field(min_length=1, max_length=80)
+
+
+class UseScanWidthIn(BaseModel):
+    # What a person saw at the doorway in the 3D tour. A pair of doors is not offered: one leaf has to be measured.
+    door: Literal["none", "hinged"]
+    reviewed_by: str = Field(min_length=1, max_length=80)
 
 
 class VerifyIn(BaseModel):

@@ -245,3 +245,98 @@ def test_scan_doorway_position_comes_from_the_wall_it_sits_in():
     assert by_id["o1"]["center"] == [1.0, 0.5]
     assert by_id["o2"]["center"] is None, "no relativeCenter means no position, never a guess"
     assert matterport.floor_plan(model) == {"Floor 1": [[0, 0, 4, 2]]}   # the vertex-less edge is skipped
+
+
+def test_a_tour_measurement_on_a_scan_doorway_uses_the_scan_wall_as_depth(audit):
+    """One line drawn in the 3D tour is enough: the scan already knows how deep the opening is."""
+    from app.models import Measurement
+    audit.is_synthetic = False
+    _tour(audit, [_door("a", 36.0, wall=5.1), _door("b", 36.0, wall=5.1)])
+    runner.step_doorways(audit)
+    wide, tight = [d for d in audit.property.doors if d.source == "matterport_floorplan"]
+    for door, value in ((wide, 33.4), (tight, 30.5)):
+        audit.measurements.append(Measurement(id=f"m_{door.id}", audit_id="a1", location_id=door.id,
+                                              name="door_clear_width_in", value=value, unit="in", method="model_metric"))
+    runner.reevaluate(audit)
+    by = {f.location_id: f for f in audit.findings}
+    assert by[wide.id].status == "NUMERIC_SCREEN_PASS" and by[wide.id].confidence == "MODEL_METRIC"
+    assert by[tight.id].status == "NUMERIC_SCREEN_FAIL"
+    assert any("wall thickness" in a for a in by[wide.id].assumptions)
+
+
+def test_scan_mesh_measures_a_doorway_gap():
+    """A wall with a 0.9 m opening: the gap is found, and a leaf across the opening blocks it."""
+    from app.providers import scanmesh
+
+    def wall(x0, x1):   # a vertical quad in the plane y = 0, from floor to 2.4 m
+        return [(x0, 0, 0), (x1, 0, 0), (x1, 0, 2.4), (x0, 0, 2.4)]
+
+    def obj(quads):
+        verts = [v for q in quads for v in q]
+        lines = [f"v {x} {y} {z}" for x, y, z in verts]
+        lines += [f"f {4*i+1} {4*i+2} {4*i+3}\nf {4*i+1} {4*i+3} {4*i+4}" for i in range(len(quads))]
+        return "\n".join(lines).encode()
+
+    geom = {"a": [-3, 0], "b": [3, 0], "centre": 0.5, "width_m": 0.9, "thickness_m": 0.12, "lower_m": 0.0, "height_m": 2.1}
+    open_doorway = [{"geom": dict(geom)}]
+    assert scanmesh.measure_doorways(obj([wall(-3, -0.45), wall(0.45, 3)]), open_doorway) == 1
+    assert open_doorway[0]["mesh_state"] == "clear" and abs(open_doorway[0]["mesh_gap_in"] - 35.4) < 0.2
+
+    closed = [{"geom": dict(geom)}]
+    assert scanmesh.measure_doorways(obj([wall(-3, -0.45), wall(-0.45, 0.45), wall(0.45, 3)]), closed) == 0
+    assert closed[0]["mesh_state"] == "blocked"
+
+    ajar = [{"geom": dict(geom)}]
+    scanmesh.measure_doorways(obj([wall(-3, -0.45), wall(-0.45, 0.0), wall(0.45, 3)]), ajar)
+    assert ajar[0]["mesh_state"] == "partly_blocked"
+
+
+def test_accepting_scan_estimates_passes_only_mesh_confirmed_wide_doorways(audit):
+    from fastapi.testclient import TestClient
+    from app import store
+    from app.main import app
+    audit.is_synthetic = False
+    audit.status = "COMPLETE"
+    wide = {**_door("a", 37.0), "mesh_state": "clear", "mesh_gap_in": 36.8}
+    tight = {**_door("b", 34.0), "mesh_state": "clear", "mesh_gap_in": 34.0}
+    unseen = {**_door("c", 40.0), "mesh_state": "blocked", "mesh_gap_in": 0.0}
+    _tour(audit, [wide, tight, unseen])
+    runner.step_doorways(audit)
+    runner.reevaluate(audit)
+    assert not any(f.status == "NUMERIC_SCREEN_PASS" and f.location.startswith("Scan doorway") for f in audit.findings), \
+        "nothing passes until a person accepts"
+    store.save(audit)
+
+    res = TestClient(app).post(f"/api/audits/{audit.id}/doors/accept-scan-estimates", json={"reviewed_by": "Test Reviewer"})
+    assert res.status_code == 200 and res.json()["accepted"] == 1
+    after = {f.location: f for f in store.get(audit.id).findings if f.location.startswith("Scan doorway")}
+    passed = [f for f in after.values() if f.status == "NUMERIC_SCREEN_PASS"]
+    assert len(passed) == 1 and passed[0].confidence == "SCAN_MESH_ACCEPTED"
+    assert passed[0].observed["value"] == 33.5 and "accepted by Test Reviewer" in passed[0].assumptions[0]
+    assert sum(f.status == "FIELD_VERIFICATION_REQUIRED" for f in after.values()) == 2
+
+
+def test_a_person_can_take_the_scan_width_after_looking_at_the_doorway(audit):
+    from fastapi.testclient import TestClient
+    from app import store
+    from app.main import app
+    audit.is_synthetic = False
+    audit.status = "COMPLETE"
+    _tour(audit, [{**_door("a", 57.0), "mesh_state": "clear", "mesh_gap_in": 56.8}, _door("b", 33.5), _door("c", 30.0)])
+    runner.step_doorways(audit)
+    runner.reevaluate(audit)
+    store.save(audit)
+    doors = {d.label.split(",")[0]: d.id for d in audit.property.doors if d.source == "matterport_floorplan"}
+    client = TestClient(app)
+    url = f"/api/audits/{audit.id}/doors/{{}}/use-scan-width"
+
+    # A 57 in opening with no door in it: the opening is the clear width, taken as the scan has it.
+    open_one = client.post(url.format(doors["Scan doorway 1"]), json={"door": "none", "reviewed_by": "Test Reviewer"}).json()["finding"]
+    assert open_one["status"] == "NUMERIC_SCREEN_PASS" and open_one["observed"]["value"] == 56.8
+    assert "saw no door" in open_one["assumptions"][0] and open_one["confidence"] == "SCAN_MESH_ACCEPTED"
+
+    # A 33.5 in opening with a hinged door leaves about 31.2 in: below the minimum.
+    hinged = client.post(url.format(doors["Scan doorway 2"]), json={"door": "hinged", "reviewed_by": "Test Reviewer"}).json()["finding"]
+    assert hinged["status"] == "NUMERIC_SCREEN_FAIL" and hinged["observed"]["value"] == 31.2
+
+    assert client.post(url.format("door_entrance"), json={"door": "none", "reviewed_by": "x"}).status_code == 404

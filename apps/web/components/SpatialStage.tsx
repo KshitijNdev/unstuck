@@ -3,6 +3,7 @@
 import { motion } from "motion/react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { builtBeforeAda, ErrorNote, PreAdaNote, rovingKeys } from "@/components/ui";
+import { TourMeasure } from "@/components/TourMeasure";
 import { CATEGORY_LABEL, chooseModel, evidenceUrl, getSources, saveMarkups, suggestMarkups, type Audit, type StallSuggestion, type Candidate, type Evidence, type Finding, type Pin,
   type Region } from "@/lib/api";
 
@@ -535,9 +536,10 @@ export function SpatialStage({ audit, auditId, selected, onSelect, layer, setLay
         )}
         {layer === "interior" && tour && (tour.view_url ? (
           <>
-            <iframe key={tour.provider_asset_id} src={tour.view_url} allow="xr-spatial-tracking; fullscreen" allowFullScreen
-              onLoad={() => setTourLoaded(tour.provider_asset_id)}
-              title={`Matterport 3D tour of ${tourInfo?.name ?? "the property"}`} className="st-tour" />
+            <TourMeasure key={tour.provider_asset_id} src={tour.view_url} modelId={tour.provider_asset_id}
+              title={`Matterport 3D tour of ${tourInfo?.name ?? "the property"}`}
+              audit={audit} auditId={auditId} selected={selected} onChanged={onChanged}
+              onLoad={() => setTourLoaded(tour.provider_asset_id)} />
             {tourLoaded !== tour.provider_asset_id && (
               <div className="st-tour st-tour-wait" role="status"><span className="st-spin" /><span>Loading 3D tour</span></div>
             )}

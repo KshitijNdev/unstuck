@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { FindingFigure } from "@/components/FindingFigure";
 import { StatusBadge, ErrorNote } from "@/components/ui";
-import { addMeasurement, CONFIDENCE, verifyFinding, type Finding, TRIAGE } from "@/lib/api";
+import { addMeasurement, CONFIDENCE, verifyFinding, type Finding, TRIAGE, takeScanWidth } from "@/lib/api";
 
 const PARKING_FIELDS = [
   { name: "parking_total_spaces", label: "Total spaces in this lot" },
@@ -41,6 +41,11 @@ export function FindingCard({ finding: f, auditId, selected, onSelect, onChanged
   const [method, setMethod] = useState("field");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [doorKind, setDoorKind] = useState<"none" | "hinged">("none");
+  // Scan doorways that nobody has measured: offer the scan's own width (the narrower of floor plan and mesh).
+  const scanWidth = f.observed?.triage
+    ? Math.floor(Math.min(f.observed.value, f.observed.mesh_gap_in ?? f.observed.value) * 10) / 10
+    : null;
 
   async function run(action: () => Promise<void>) {
     setBusy(true);
@@ -110,7 +115,10 @@ export function FindingCard({ finding: f, auditId, selected, onSelect, onChanged
         <p className="mt-1 text-[0.95rem] text-muted">
           <span className="font-semibold text-ink">{TRIAGE[f.observed.triage]}.</span>{" "}
           A hinged door here would leave about {f.observed.clear_estimate_in[0]} to {f.observed.clear_estimate_in[1]} in
-          clear. Estimated from the scan&apos;s floor plan, not measured.
+          clear.{" "}
+          {f.observed.mesh_gap_in != null
+            ? `The scan's 3D mesh shows a ${f.observed.mesh_gap_in} in open gap here. An estimate, not a measurement of the door.`
+            : "Estimated from the scan's floor plan, not measured."}
         </p>
       )}
       {f.borderline && <p className="mt-1 text-[0.95rem] font-semibold text-review">Close to the minimum: measure again before acting.</p>}
@@ -139,6 +147,30 @@ export function FindingCard({ finding: f, auditId, selected, onSelect, onChanged
           <button className="btn btn-sm" disabled={busy} onClick={() => review("needs_field_visit")}>Needs a site visit</button>
         )}
       </div>
+
+      {scanWidth != null && (
+        <form className="no-print mt-4 grid gap-2 border-l-4 border-sign bg-sign-wash p-4 text-[0.95rem]"
+          onSubmit={(e) => { e.preventDefault(); run(async () => { await takeScanWidth(auditId, f.location_id, doorKind, who); }); }}>
+          <p className="font-semibold">Use the scan&apos;s width without measuring</p>
+          <p className="text-muted">Look at this doorway in the 3D tour and say what is there.</p>
+          <label className="flex items-start gap-2">
+            <input type="radio" name={`kind-${f.id}`} className="mt-1" checked={doorKind === "none"} onChange={() => setDoorKind("none")} />
+            <span>No door in the opening. Clear width is the opening: <strong>{scanWidth} in</strong>.</span>
+          </label>
+          <label className="flex items-start gap-2">
+            <input type="radio" name={`kind-${f.id}`} className="mt-1" checked={doorKind === "hinged"} onChange={() => setDoorKind("hinged")} />
+            <span>A single hinged door. Less 2.25 in for the door and stop: <strong>{Math.floor((scanWidth - 2.25) * 10) / 10} in</strong>.</span>
+          </label>
+          <p className="text-sm text-muted">A pair of doors needs one leaf measured in the tour instead.</p>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="font-medium">
+              Your name
+              <input className="field mt-1" required maxLength={80} value={who} onChange={(e) => setWho(e.target.value)} />
+            </label>
+            <button className="btn btn-primary btn-sm" type="submit" disabled={busy}>Use this width</button>
+          </div>
+        </form>
+      )}
 
       <AnimatePresence initial={false}>
         {open && (

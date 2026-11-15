@@ -69,7 +69,7 @@ async def _probe(provider: str) -> str:
         if model_id is None:
             raise LookupError("no linked Matterport model to test against")
         async with httpx.AsyncClient() as client:
-            _, summary = await matterport.fetch_model(client, "integration_check", model_id)
+            _, summary = await matterport.fetch_model(client, "integration_check", model_id, measure_mesh=False)
         return f"Model {model_id} answered ({summary.get('panos', 0)} scan positions)"
     if provider == "gemini":
         from google import genai

@@ -14,6 +14,8 @@ Rules of this module:
 """
 from __future__ import annotations
 
+import math
+
 from dataclasses import dataclass, field, asdict
 from math import ceil
 from typing import Any
@@ -31,7 +33,9 @@ OUT_OF_SCOPE = "OUT_OF_SCOPE"
 
 # Measurement methods
 # "record" = a value taken from a provider record (e.g. CoStar parking count), not measured by us.
-TRUSTED_METHODS = {"field", "manual", "model_metric", "record"}
+# "scan_mesh" = a lower-bound clear width worked out from the scan's 3D mesh that a person accepted without
+# re-measuring. It is only ever recorded with a safety margin already taken off (see screen_doorway_opening).
+TRUSTED_METHODS = {"field", "manual", "model_metric", "record", "scan_mesh"}
 SYNTHETIC_METHOD = "synthetic_demo_only"
 UNTRUSTED_METHODS = {"image_estimate"}
 KNOWN_METHODS = TRUSTED_METHODS | UNTRUSTED_METHODS | {SYNTHETIC_METHOD}
@@ -297,9 +301,13 @@ SCAN_METHOD = "scan_floorplan"
 # the floor plan drew the rough wall gap instead of the door, the frame takes about another 4 in.
 DOOR_LEAF_AND_STOP_IN = 2.25
 SCAN_OPENING_MAX_LOSS_IN = 6.25
+# An opening this wide may hold a pair of doors. §404.2.2 needs one active leaf to give the clear width on its own,
+# so a wide opening is only called "likely wide" if half of it would do.
+PAIR_OF_DOORS_MIN_IN = 48.0
 
 
-def screen_doorway_opening(opening_width_in: float | None, wall_thickness_in: float | None) -> RuleResult:
+def screen_doorway_opening(opening_width_in: float | None, wall_thickness_in: float | None,
+                           mesh_gap_in: float | None = None) -> RuleResult:
     """Screen a doorway using only the opening width drawn in a 3D scan's floor plan.
 
     Outcomes: SUSPECTED (opening clearly under 32 in, so clear width must be too),
@@ -310,6 +318,12 @@ def screen_doorway_opening(opening_width_in: float | None, wall_thickness_in: fl
     "narrow" (the opening itself is under the minimum), "likely_narrow" (a hinged door here would leave less than
     the minimum), "measure" (could land either side), "likely_wide" (clears the minimum even after the largest
     allowance). Triage orders the work. It never changes the status.
+
+    mesh_gap_in is the free gap measured at this doorway in the scan's 3D mesh, given only when it matched the
+    drawn opening (providers/scanmesh.py). It settles that the drawn width is the physical gap between the jambs,
+    so the frame no longer has to be allowed for and only the door leaf and stop are deducted. A mesh-confirmed
+    "likely_wide" doorway carries observed["accept_clear_in"]: a lower-bound clear width a person may accept
+    in place of measuring. Accepting is a person's act; this function still never returns PASS.
     """
     width = _inches(opening_width_in, "opening_width_in")
     depth = _inches(wall_thickness_in, "wall_thickness_in")
@@ -338,9 +352,20 @@ def screen_doorway_opening(opening_width_in: float | None, wall_thickness_in: fl
     deep = depth is not None and depth > 24
     minimum = 36 if deep else 32
     tol = SCAN_OPENING_TOLERANCE_IN
-    # Clear width a hinged door would leave: worst case the plan drew the wall gap, best case the door itself.
-    lo, hi = width - tol - SCAN_OPENING_MAX_LOSS_IN, width + tol - DOOR_LEAF_AND_STOP_IN
+    gap = _inches(mesh_gap_in, "mesh_gap_in")
+    confirmed = gap is not None
+    basis = min(width, gap) if confirmed else width
+    # With the mesh the opening is known, so only the door itself is deducted. Without it the plan may have drawn
+    # the wall gap, frame included.
+    loss = DOOR_LEAF_AND_STOP_IN if confirmed else SCAN_OPENING_MAX_LOSS_IN
+    pair = width >= PAIR_OF_DOORS_MIN_IN
+    lo = (basis / 2 if pair else basis) - tol - loss     # least a hinged door (or one leaf of a pair) would leave
+    hi = width + tol - DOOR_LEAF_AND_STOP_IN             # most a hinged door would leave
     observed["clear_estimate_in"] = [round(max(lo, 0), 1), round(hi, 1)]
+    if confirmed:
+        observed["mesh_gap_in"] = round(gap, 1)
+        assumptions.append(f"The scan's 3D mesh shows a {gap:.1f} in free gap at this doorway, matching the drawn opening, "
+                           "so the frame is not deducted again. The mesh is too coarse to show the door leaf.")
     if width < 32 - tol:
         observed["triage"] = "narrow"
         return result(SUSPECTED, observed,
@@ -352,19 +377,34 @@ def screen_doorway_opening(opening_width_in: float | None, wall_thickness_in: fl
     note = " The wall is over 24 in thick here, so the 36 in minimum may apply." if deep else ""
     lead = f"The scan's doorway opening is {width:.1f} in. Clear width is narrower than the opening, so this " \
            f"cannot be screened until someone measures it.{note}"
-    if hi < minimum:
+    if not pair and hi < minimum:
         observed["triage"] = "likely_narrow"
         return result(FIELD, observed,
                       f"{lead} Measure this one first: a hinged door takes at least {DOOR_LEAF_AND_STOP_IN:g} in of its "
                       f"own width, which would leave about {hi:.1f} in or less against the {minimum} in minimum.",
                       measure)
-    if lo >= minimum:
+    # Leave the same margin check_door wants near a threshold, so an accepted estimate is not sent straight back.
+    if lo >= minimum + BORDERLINE_TOLERANCE_IN:
         observed["triage"] = "likely_wide"
+        what = "one leaf of a pair" if pair else "a hinged door"
+        if confirmed:
+            observed["accept_clear_in"] = math.floor(lo * 10) / 10
+            return result(FIELD, observed,
+                          f"The scan's 3D mesh shows a {gap:.1f} in open gap at this doorway, matching the {width:.1f} in "
+                          f"drawn in the floor plan.{note} Allowing {DOOR_LEAF_AND_STOP_IN:g} in for the door and stop "
+                          f"and {tol:g} in for scan error, {what} would leave about {lo:.1f} in against the {minimum} in "
+                          "minimum. A person can accept this estimate in place of measuring.",
+                          "Accept the scan estimate, or confirm the clear opening in the 3D tour or with a tape on site.")
         return result(FIELD, observed,
                       f"{lead} Low priority: even allowing {SCAN_OPENING_MAX_LOSS_IN:g} in for the frame, door and stop, "
-                      f"about {lo:.1f} in would remain against the {minimum} in minimum.",
+                      f"about {lo:.1f} in would remain for {what} against the {minimum} in minimum.",
                       "Confirm the clear opening when convenient, in the 3D tour or with a tape on site.")
     observed["triage"] = "measure"
+    if pair:
+        return result(FIELD, observed,
+                      f"{lead} An opening this wide may hold a pair of doors, and one leaf must give {minimum} in on its "
+                      f"own. Half of it, less the door and stop, would leave about {max(lo, 0):.1f} in.",
+                      "Measure the clear opening of the active leaf with it open 90 degrees, in the 3D tour or on site.")
     return result(FIELD, observed,
                   f"{lead} A hinged door here would leave roughly {max(lo, 0):.1f} to {hi:.1f} in, which could land "
                   f"either side of the {minimum} in minimum.", measure)

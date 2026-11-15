@@ -11,9 +11,9 @@ from ..models import Audit, Finding, Measurement
 from ..rules import ada2010 as rules
 
 # Lower rank = weaker provenance. A check that mixes methods is labelled with the weakest.
-_RANK = {"synthetic_demo_only": 0, "image_estimate": 1, "scan_floorplan": 1.5, "model_metric": 2, "record": 2.5, "manual": 3, "field": 4}
+_RANK = {"synthetic_demo_only": 0, "image_estimate": 1, "scan_floorplan": 1.5, "scan_mesh": 1.75, "model_metric": 2, "record": 2.5, "manual": 3, "field": 4}
 _CONFIDENCE = {
-    "synthetic_demo_only": "DEMO_SYNTHETIC", "image_estimate": "IMAGE_ESTIMATE_UNVERIFIED", "scan_floorplan": "SCAN_FLOORPLAN",
+    "synthetic_demo_only": "DEMO_SYNTHETIC", "image_estimate": "IMAGE_ESTIMATE_UNVERIFIED", "scan_floorplan": "SCAN_FLOORPLAN", "scan_mesh": "SCAN_MESH_ACCEPTED",
     "model_metric": "MODEL_METRIC", "record": "PROPERTY_RECORD", "manual": "MANUAL_ENTRY", "field": "FIELD_MEASURED", None: "NO_MEASUREMENT",
 }
 _LABEL = {
@@ -102,15 +102,30 @@ def evaluate(audit: Audit) -> list[Finding]:
         if width is None and opening is not None:
             # Only the scan's frame opening is known: it can raise suspicion, never pass the door.
             wall = ms.get("door_wall_thickness_in")
-            result = rules.screen_doorway_opening(opening.value, wall.value if wall else None)
+            gap = ms.get("door_mesh_gap_in")
+            result = rules.screen_doorway_opening(opening.value, wall.value if wall else None, gap.value if gap else None)
             # Doorways the scan shows comfortably wide drop below the rest; nothing is passed.
             likely_wide = (result.observed or {}).get("triage") == "likely_wide"
             findings.append(_finding(audit, result, door.id, door.label, door.priority + 1 if likely_wide else door.priority,
                                      opening.method, evidence, previous))
             continue
         method = _weakest([m for m in (width, depth) if m])
-        result = rules.check_door(width.value if width else None, depth.value if depth else None,
+        # A scan doorway already has its wall thickness, which is the depth of the opening. Use it when nobody
+        # measured the depth, so one clear-width measurement is enough to screen the door.
+        wall = ms.get("door_wall_thickness_in") if depth is None and width is not None else None
+        depth_in = depth.value if depth else wall.value if wall else None
+        result = rules.check_door(width.value if width else None, depth_in,
                                   width.method if width else None, width.evidence_id if width else None)
+        if width is not None and width.method == "scan_mesh":
+            # An accepted scan estimate is not a measurement of the door: say so wherever the result is shown.
+            result.assumptions = [
+                width.notes or f"Clear width taken from the scan and accepted by {width.reviewed_by or 'a reviewer'} "
+                               "without measuring the door.",
+                *result.assumptions[1:]]
+            result.rationale = result.rationale.replace("in clear width", "in estimated clear width")
+        if wall is not None:
+            result.assumptions = [*result.assumptions, f"Opening depth taken as the {wall.value:g} in wall thickness "
+                                  "drawn in the scan's floor plan; it was not measured separately."]
         findings.append(_finding(audit, result, door.id, door.label, door.priority, method, evidence, previous))
 
     for obs in audit.observations:  # visual hypotheses: never numeric
