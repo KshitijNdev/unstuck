@@ -3,7 +3,7 @@
 import { AnimatePresence, motion, MotionConfig, useReducedMotion } from "motion/react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { IntegrationsPanel } from "@/components/IntegrationsPanel";
 import type { Shot } from "@/components/LandingScene";
 import { createAudit, getSources, searchProperties, type CostarHit, type Integration } from "@/lib/api";
@@ -45,6 +45,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [launching, setLaunching] = useState(false);
   const [authorized, setAuthorized] = useState(false);
+  const [needsAuth, setNeedsAuth] = useState(false);  // a screen was attempted without the authorization tick
   const [query, setQuery] = useState("");
   const [focused, setFocused] = useState(false);
   const [hits, setHits] = useState<CostarHit[] | null>(null);
@@ -60,6 +61,18 @@ export default function Home() {
   const pinEls = useRef<Record<string, HTMLElement | null>>({});
   const inputRef = useRef<HTMLInputElement>(null);
   const igRef = useRef<HTMLDivElement>(null);
+  const heroAuthRef = useRef<HTMLInputElement>(null);
+  const sheetAuthRef = useRef<HTMLInputElement>(null);
+
+  // Next keeps this page mounted in a hidden <Activity> after router.push (cacheComponents), so state
+  // survives a return via Back or the logo. Clear the transient launch state when the page is hidden.
+  // The authorization tick is per screening, so it resets too.
+  useLayoutEffect(() => () => {
+    setLaunching(false);
+    setError(null);
+    setAuthorized(false);
+    setNeedsAuth(false);
+  }, []);
 
   // The scene starts on a far, high shot; once it is drawn the camera flies in (the entrance).
   useEffect(() => {
@@ -116,7 +129,21 @@ export default function Home() {
     }
   }
 
+  // The server enforces the tick too (403); this explains a refused click instead of a silently dead button.
+  function requireAuth(box: React.RefObject<HTMLInputElement | null>) {
+    if (authorized) return true;
+    setNeedsAuth(true);
+    box.current?.focus();
+    return false;
+  }
+
+  function onAuthChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setAuthorized(e.target.checked);
+    if (e.target.checked) setNeedsAuth(false);
+  }
+
   function choose(h: CostarHit) {
+    setNeedsAuth(false);
     setSelectedId(h.id);
     setPin(null);
     setHoverPin(null);
@@ -207,9 +234,10 @@ export default function Home() {
                 )}
               </AnimatePresence>
               <label className={`lx-auth ${authorized ? "on" : ""}`}>
-                <input type="checkbox" checked={authorized} onChange={(e) => setAuthorized(e.target.checked)} />
+                <input ref={heroAuthRef} type="checkbox" checked={authorized} onChange={onAuthChange} />
                 <span>I own this property or am authorized to screen it under the hackathon data terms</span>
               </label>
+              {needsAuth && !authorized && <p className="lx-hint" role="alert">Tick the box to confirm you’re authorized.</p>}
             </motion.div>
 
             {error && <p className="lx-error" role="alert">{error}</p>}
@@ -224,15 +252,19 @@ export default function Home() {
               {coordsOpen && (
                 <motion.form key="coords" className="lx-coords" initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
                   transition={{ duration: reduced ? 0 : 0.25, ease: EASE }}
-                  onSubmit={(e) => { e.preventDefault(); start({ custom_property: { name: form.name, address: form.address || null, lat: Number(form.lat), lon: Number(form.lon) }, ownership_authorized: authorized }); }}>
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!requireAuth(heroAuthRef)) return;
+                    start({ custom_property: { name: form.name, address: form.address || null, lat: Number(form.lat), lon: Number(form.lon) }, ownership_authorized: authorized });
+                  }}>
                   <div className="lx-coords-grid">
                     <label className="wide">Property name<input className="field" required maxLength={120} value={form.name} onChange={set("name")} /></label>
                     <label className="wide">Address <em>(optional)</em><input className="field" maxLength={200} value={form.address} onChange={set("address")} /></label>
                     <label>Latitude<input className="field" required type="number" step="any" min={-90} max={90} value={form.lat} onChange={set("lat")} /></label>
                     <label>Longitude<input className="field" required type="number" step="any" min={-180} max={180} value={form.lon} onChange={set("lon")} /></label>
                   </div>
-                  <button className="btn btn-sm" type="submit" disabled={launching || !authorized}>Start screening</button>
-                  {!authorized && <span>Tick the authorization box first.</span>}
+                  <button className="btn btn-sm" type="submit" disabled={launching}>Start screening</button>
+                  {!authorized && <span>Tick the authorization box above first.</span>}
                 </motion.form>
               )}
             </AnimatePresence>
@@ -275,7 +307,7 @@ export default function Home() {
           <motion.aside key={selected.id} className="lx-sheet" aria-labelledby="lx-sheet-title"
             initial={{ opacity: 0, x: reduced ? 0 : 28 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: reduced ? 0 : 28 }}
             transition={{ duration: 0.34, ease: EASE }}>
-            <button type="button" className="lx-back" onClick={() => { setSelectedId(null); setTimeout(() => inputRef.current?.focus(), 50); }}>
+            <button type="button" className="lx-back" onClick={() => { setNeedsAuth(false); setSelectedId(null); setTimeout(() => inputRef.current?.focus(), 50); }}>
               ← Back to search
             </button>
             <p className="lx-kicker">CoStar {selected.id} · {selected.type}{selected.year_built ? ` · built ${selected.year_built}` : ""}</p>
@@ -284,14 +316,15 @@ export default function Home() {
             <h3>What this screening will use</h3>
             <Coverage hit={selected} />
             <div className="lx-go">
-              <button className="btn btn-primary" disabled={launching || !authorized}
-                onClick={() => start({ costar_property_id: selected.id, ownership_authorized: authorized })}>
-                {launching ? "Opening the inspection…" : "Screen this property"}
-              </button>
               <label className={`lx-auth inline ${authorized ? "on" : ""}`}>
-                <input type="checkbox" checked={authorized} onChange={(e) => setAuthorized(e.target.checked)} />
+                <input ref={sheetAuthRef} type="checkbox" checked={authorized} onChange={onAuthChange} />
                 <span>I’m authorized to screen this property</span>
               </label>
+              {needsAuth && !authorized && <p className="lx-hint" role="alert">Tick the box to confirm you’re authorized.</p>}
+              <button type="button" className="btn btn-primary" disabled={launching}
+                onClick={() => { if (requireAuth(sheetAuthRef)) start({ costar_property_id: selected.id, ownership_authorized: authorized }); }}>
+                {launching ? "Opening the inspection…" : "Screen this property"}
+              </button>
             </div>
             {error && <p className="lx-error" role="alert">{error}</p>}
           </motion.aside>

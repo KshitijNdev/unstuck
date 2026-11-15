@@ -1,5 +1,5 @@
-// The local API runs on 8173 (see START_UNSTUCK_SPATIAL.command); NEXT_PUBLIC_API_URL overrides it.
-export const API = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8173";
+// The local API runs on 8000 (scripts/dev.sh sets NEXT_PUBLIC_API_URL explicitly); NEXT_PUBLIC_API_URL overrides this default.
+export const API = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 
 export type FindingStatus =
   | "NUMERIC_SCREEN_FAIL"

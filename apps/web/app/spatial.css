@@ -388,6 +388,8 @@ body:has(.lx) > header, body:has(.lx) > footer { display: none; }
 .lx-auth input { margin-top: .15rem; width: .95rem; height: .95rem; accent-color: var(--sign); }
 .lx-auth.inline { padding: 0; border: 0; background: none; }
 .lx-error { font-size: .9rem; color: var(--fail); }
+.lx-hint { font-size: .84rem; font-weight: 600; color: var(--fail); }
+.lx-bar .lx-hint { padding: 0 1.15rem .75rem; }
 .lx-alt { display: flex; gap: 1.5rem; }
 .lx-alt button { font-size: .92rem; font-weight: 600; color: var(--sign); cursor: pointer; text-decoration: underline; text-decoration-color: rgba(20,80,163,.35); text-underline-offset: 4px; transition: text-decoration-color 140ms; }
 .lx-alt button:hover { text-decoration-color: var(--sign); }
