@@ -497,7 +497,6 @@ body:has(.lx) > header, body:has(.lx) > footer { display: none; }
 /* Provenance on two aligned lines (source, then status) instead of one line truncated twice. */
 .st-bl .st-hud { display: grid; grid-template-columns: 7px minmax(0, 1fr); column-gap: .5rem; row-gap: .05rem; align-items: center; }
 .st-bl .st-hud strong { grid-column: 2; min-width: 0; }
-.lg-replay { margin-top: .5rem; border: 1px solid var(--line-soft); background: var(--sheet); }
 .lg-explainer summary { cursor: pointer; font-weight: 600; font-size: .95rem; padding: .4rem 0; }
 .lg-explainer[open] summary { margin-bottom: .5rem; }
 .lg-explainer > *:not(summary) { font-size: .9rem; }

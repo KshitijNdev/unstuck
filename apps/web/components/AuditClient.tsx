@@ -7,7 +7,6 @@ import { SpatialWorkspace } from "@/components/SpatialWorkspace";
 import { AgentExplainer } from "@/components/AgentExplainer";
 import { AnalysisView, engineLabel } from "@/components/AnalysisView";
 import { IntegrationsPanel } from "@/components/IntegrationsPanel";
-import { RouteReplay } from "@/components/RouteReplay";
 import { builtBeforeAda, ErrorNote } from "@/components/ui";
 import { API, getAudit, type AgentEvent, type Audit } from "@/lib/api";
 
@@ -173,13 +172,6 @@ export function AuditClient({ id }: { id: string }) {
           <blockquote>{audit.narrative}</blockquote>
           <figcaption>Summary written by the AI agent. Check it against the results.</figcaption>
         </figure>
-      )}
-      {audit.findings.length > 0 && (
-        <section>
-          <h3>Trip replay</h3>
-          <p className="lg-sub">A visitor’s trip from the parking lot to the door, stopping at each check on the way.</p>
-          <div className="lg-replay"><RouteReplay findings={audit.findings} /></div>
-        </section>
       )}
       <section><h3>Plan</h3>{plan}</section>
       <section><h3>Agent activity</h3><Timeline events={events} running={false} /></section>
