@@ -10,7 +10,7 @@ FindingStatus = Literal[
     "NUMERIC_SCREEN_FAIL", "NUMERIC_SCREEN_PASS", "SUSPECTED_VISUAL_BARRIER",
     "FIELD_VERIFICATION_REQUIRED", "INSUFFICIENT_DATA", "OUT_OF_SCOPE",
 ]
-MeasurementMethod = Literal["field", "manual", "model_metric", "record", "image_estimate", "synthetic_demo_only"]
+MeasurementMethod = Literal["field", "manual", "model_metric", "record", "image_estimate", "scan_floorplan", "synthetic_demo_only"]
 ReviewStatus = Literal["NOT_REVIEWED", "APPROVED", "REJECTED", "NEEDS_FIELD_VISIT"]
 SourceState = Literal["connected", "limited", "unavailable"]
 EventType = Literal[
@@ -25,6 +25,8 @@ MEASUREMENT_NAMES = {
     "parking_total_spaces", "parking_accessible_spaces", "parking_van_spaces",
     "door_clear_width_in", "door_opening_depth_in",
 }
+# Read from a 3D scan's floor plan by the agent or pipeline; people cannot enter these.
+SCAN_MEASUREMENT_NAMES = {"door_opening_width_in", "door_wall_thickness_in"}
 
 
 def now_iso() -> str:
@@ -49,6 +51,8 @@ class Door(BaseModel):
     id: str
     label: str
     priority: int = 1  # 1 = entry/route/parking, 2 = interior
+    source: str | None = None        # "matterport_floorplan" for doorways read from a scan
+    model_id: str | None = None      # the scan it came from
 
 
 class Property(BaseModel):
@@ -174,7 +178,7 @@ class Audit(BaseModel):
     mode: str = "single_property"
     standard_profile: str = "ADA_2010_SCREEN"
     status: AuditStatus = "QUEUED"
-    engine: str = "scripted_pipeline"   # or "claude_agent" when a model key is configured
+    engine: str = "scripted_pipeline"   # or "deep_agent" when a model key is configured
     narrative: str | None = None        # the agent's plain-language summary; never a finding source
     usage: list[ModelUsage] = []        # one entry per model that served requests (a fallback adds one)
     started_at: str = Field(default_factory=now_iso)
@@ -232,7 +236,8 @@ class Pin(BaseModel):
     x: float = Field(ge=0, le=1)
     y: float = Field(ge=0, le=1)
     kind: Literal["accessible", "van"]   # a van-accessible space is also an accessible space
-    candidate_id: str | None = None      # set when the mark is a Gemini candidate a person accepted
+    candidate_id: str | None = None      # accepted Gemini candidate; preserve review provenance
+    suggested: bool = False              # accepted Claude suggestion (not an independently measured stall)
 
 
 class PinsIn(BaseModel):

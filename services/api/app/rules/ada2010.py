@@ -284,6 +284,59 @@ def check_door(
     )
 
 
+# --------------------------------------------------------------------------- §404.2.3 from a scan
+# A Matterport floor plan stores each doorway as an opening in a wall: the framed gap. Clear width
+# (door open 90 degrees, door face to stop) is always narrower than that gap, because the door leaf
+# and the stops sit inside it. So a scan opening can show a doorway is too narrow, but never that it
+# is wide enough.
+SCAN_OPENING_TOLERANCE_IN = 1.0   # our margin for floor-plan drawing error; not a Matterport accuracy spec
+SCAN_OPENING_MIN_PLAUSIBLE_IN = 20.0  # narrower "doorways" in the wall graph are drawing artefacts
+SCAN_METHOD = "scan_floorplan"
+
+
+def screen_doorway_opening(opening_width_in: float | None, wall_thickness_in: float | None) -> RuleResult:
+    """Screen a doorway using only the opening width drawn in a 3D scan's floor plan.
+
+    Outcomes: SUSPECTED (opening clearly under 32 in, so clear width must be too),
+    FIELD (opening wide enough that clear width could meet the minimum: a person must measure),
+    INSUFFICIENT (no width, or an implausible one). Never PASS or FAIL: the scan does not measure clear width.
+    """
+    width = _inches(opening_width_in, "opening_width_in")
+    depth = _inches(wall_thickness_in, "wall_thickness_in")
+    rule_id, cite, title = "ADA_2010_404_2_3", "2010 ADA Standards §404.2.3", "Door clear opening width"
+    required = {"value": 32, "unit": "in", "condition": "36 in if opening depth > 24 in"}
+    assumptions = [
+        "Width is the doorway opening drawn in the Matterport floor plan, not clear width measured with the door open.",
+        "Clear width is narrower than the opening: the door leaf and stops take part of it.",
+        f"A {SCAN_OPENING_TOLERANCE_IN:g} in margin is allowed for floor-plan drawing error.",
+    ]
+    measure = "Measure the clear opening with the door open 90 degrees, in the 3D tour or with a tape on site."
+
+    def result(status, observed, why, follow):
+        return RuleResult(rule_id, cite, title, status, required, observed, why, follow, False, assumptions)
+
+    if width is None:
+        return result(INSUFFICIENT, None, "The scan has no width for this doorway.", measure)
+    observed = {"value": round(width, 1), "unit": "in", "method": SCAN_METHOD, "measures": "doorway opening (frame gap)",
+                "wall_thickness_in": round(depth, 1) if depth is not None else None}
+    if width < SCAN_OPENING_MIN_PLAUSIBLE_IN:
+        return result(INSUFFICIENT, observed,
+                      f"The scan draws this doorway {width:.1f} in wide, too narrow to be a real doorway: likely a floor-plan drawing error.",
+                      "Check this spot in the 3D tour; if there is a door, measure its clear opening.")
+    deep = depth is not None and depth > 24
+    if width < 32 - SCAN_OPENING_TOLERANCE_IN:
+        return result(SUSPECTED, observed,
+                      f"The scan's doorway opening is {width:.1f} in. Clear width cannot be wider than the opening, "
+                      f"so it is probably below the 32 in minimum.",
+                      "Tape-measure the clear opening with the door open 90 degrees to confirm. If it is under 32 in, "
+                      "review options (offset hinges, wider door or frame) with a door contractor. Widening an opening "
+                      "usually needs a building permit; rules vary by city.")
+    note = " The wall is over 24 in thick here, so the 36 in minimum may apply." if deep else ""
+    return result(FIELD, observed,
+                  f"The scan's doorway opening is {width:.1f} in. Clear width is narrower than the opening, so this "
+                  f"cannot be screened until someone measures it.{note}", measure)
+
+
 # --------------------------------------------------------------------------- §403.5.1
 def check_route_width(
     clear_width_in: float | None,

@@ -11,6 +11,9 @@ dependencies = [
     "anthropic>=2.8.0",
     "google-genai>=3.3.0",
     "pillow>=13.0.0",
+    "deepagents>=0.7.38",
+    "langchain-anthropic>=1.7.10",
+    "langchain-google-genai>=4.5.0",
 ]
 
 [dependency-groups]

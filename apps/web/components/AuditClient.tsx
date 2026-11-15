@@ -132,9 +132,11 @@ export function AuditClient({ id }: { id: string }) {
       <p className="lg-sub">
         {!audit
           ? "Loading the plan…"
-          : audit.engine === "claude_agent"
-            ? "A Claude agent wrote this plan and chose each tool call. Check results come from the rule engine, not the model."
-            : "Scripted pipeline: fixed steps, no AI model involved."}
+          : audit.engine === "deep_agent"
+            ? "LangChain Deep Agents plan the audit and delegate property, exterior, and interior checks. ADA thresholds come from the deterministic rule engine."
+            : audit.usage?.length
+              ? "The Deep Agent did not finish; the scripted pipeline completed the checks. Results use the deterministic rule engine."
+              : "Scripted pipeline: fixed steps, no AI model involved. Results use the deterministic rule engine."}
       </p>
       <ol className="lg-plan">
         {(audit?.plan ?? []).map((p, i) => <li key={p}><span>{i + 1}</span>{p}</li>)}

@@ -20,7 +20,8 @@ export interface SourceStatus {
 
 export interface Region { id: string; label: string; x: number; y: number; w: number; h: number; kind: string }
 
-export interface Pin { x: number; y: number; kind: "accessible" | "van"; candidate_id?: string | null }
+export interface Pin { x: number; y: number; kind: "accessible" | "van"; candidate_id?: string | null; suggested?: boolean }
+export interface StallSuggestion { x: number; y: number; kind: "accessible" | "van"; cue: string; confidence: "high" | "medium" }
 
 export type CandidateCategory = "accessible_symbol" | "parking_stall" | "access_aisle" | "curb_ramp";
 
@@ -228,7 +229,7 @@ export interface Integration {
 }
 
 export const getSources = () =>
-  request<{ sources: SourceStatus[]; integrations: Integration[]; engine: string; engine_note: string }>("/api/sources/status");
+  request<{ sources: SourceStatus[]; integrations: Integration[]; engine: string; model?: string; engine_note: string }>("/api/sources/status");
 export const checkIntegration = (provider: Integration["provider"]) =>
   request<Integration>(`/api/integrations/${provider}/check`, { method: "POST" });
 export const getAudit = (id: string) => request<Audit>(`/api/audits/${id}`);
@@ -238,6 +239,9 @@ export const addMeasurement = (id: string, body: unknown) =>
   request<unknown>(`/api/audits/${id}/measurements`, { method: "POST", body: JSON.stringify(body) });
 export const saveMarkups = (id: string, pins: Pin[], reviewed_by: string, evidence_id?: string) =>
   request<unknown>(`/api/audits/${id}/markups`, { method: "POST", body: JSON.stringify({ pins, reviewed_by, evidence_id }) });
+/** Optional Claude-vision suggestions. Server refuses restricted imagery without confirmed permission. */
+export const suggestMarkups = (id: string) =>
+  request<{ suggestions: StallSuggestion[]; notes: string | null }>(`/api/audits/${id}/markups/suggest`, { method: "POST" });
 export const startAnalysis = (id: string, body: { evidence_id?: string; use_public_imagery?: boolean }) =>
   request<{ evidence_id: string; status: string }>(`/api/audits/${id}/analysis`, { method: "POST", body: JSON.stringify(body) });
 export const reviewCandidate = (id: string, candidateId: string,

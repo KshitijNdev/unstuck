@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import uuid
 
 import httpx
@@ -44,9 +45,11 @@ def get_sources_status():
     from ..agents import orchestrator
     rows = integrations.integrations()  # cheap: reads config and the last explicit check, never calls a provider
     if orchestrator.available():
-        return {"sources": sources_status(), "integrations": rows, "engine": "claude_agent",
-                "engine_note": f"A Claude agent ({orchestrator.model_name()}) plans each audit and chooses which sources to "
-                               "call. Every check result comes from the tested rule engine, not the model."}
+        return {"sources": sources_status(), "integrations": rows,
+                "engine": "deep_agent", "model": orchestrator.model_name(),
+                "engine_note": f"A LangChain Deep Agent ({orchestrator.model_name()}) plans each audit and delegates "
+                               "to property, exterior, and interior specialists, including scan-doorway screening. "
+                               "Every ADA result is calculated by the tested rule engine, not the model."}
     return {"sources": sources_status(), "integrations": rows, "engine": "scripted_pipeline",
             "engine_note": "Fixed scripted pipeline (no model key configured). Same checks, fixed order."}
 
@@ -115,10 +118,14 @@ def create_audit(body: CreateAudit, background: BackgroundTasks):
     else:
         raise HTTPException(400, "Provide the demo property_id or a custom_property.")
 
+    from ..agents import orchestrator
     audit = Audit(id=audit_id, property_id=prop.id, mode=body.mode, standard_profile=body.standard_profile,
-                  is_synthetic=synthetic, property=prop)
+                  is_synthetic=synthetic, property=prop,
+                  # set up front so the page never shows "scripted" for an agent audit while it is queued
+                  engine="deep_agent" if orchestrator.available() else "scripted_pipeline")
     store.save(audit)
-    background.add_task(runner.run_audit, audit_id, model_id)
+    # The agent is told about a scan only when the user picked it; the script falls back to the first linked scan.
+    background.add_task(runner.run_audit, audit_id, model_id, bool(body.matterport_model_id))
     return {"audit_id": audit_id, "status": "QUEUED", "status_url": f"/api/audits/{audit_id}"}
 
 
@@ -218,9 +225,12 @@ def apply_pins(audit: Audit, ev, pins: list[dict], reviewer: str, note: str) -> 
             id=f"m_{uuid.uuid4().hex[:8]}", audit_id=audit.id, location_id=lot, name=name, value=value, unit="spaces",
             method="manual", evidence_id=ev.id, reviewed_by=reviewer, notes=note))
     try:
+        from_ai = sum(1 for p in pins if p.get("candidate_id") or p.get("suggested"))
+        ai_note = f"; {from_ai} began as accepted AI suggestions" if from_ai else ""
         runner.emit(audit, "OBSERVATION_PROPOSED", "human_reviewer",
                     f"{reviewer} marked {counts['parking_accessible_spaces']} accessible stall(s), "
-                    f"{counts['parking_van_spaces']} of them van-accessible, on the {ev.provider} image.", payload=counts)
+                    f"{counts['parking_van_spaces']} of them van-accessible, on the {ev.provider} image{ai_note}.",
+                    payload=counts)
         runner.reevaluate(audit)
     except ValueError as e:
         fresh = _audit(audit.id)
@@ -229,6 +239,44 @@ def apply_pins(audit: Audit, ev, pins: list[dict], reviewer: str, note: str) -> 
         store.save(fresh)
         raise HTTPException(400, f"Marks rejected: {e}")
     return {"evidence": ev, "findings": audit.findings}
+
+
+@router.post("/audits/{audit_id}/markups/suggest")
+async def suggest_markups(audit_id: str):
+    """Ask the vision model where accessible stalls might be on the aerial image. Returns suggestions only:
+    nothing is saved as a mark or a count until a person accepts them and saves through /markups."""
+    from ..agents import orchestrator, stalls  # local import: the agent is optional
+
+    audit = _audit(audit_id)
+    if audit.status != "COMPLETE":
+        raise HTTPException(409, "Wait for the audit to finish before asking for suggestions.")
+    ev = next((e for e in audit.evidence if e.asset_type == "aerial_image"), None)
+    if ev is None or ev.provider != "Vexcel" or audit.property is None:
+        raise HTTPException(404, "This audit has no aerial image to look at.")
+    # Do not transmit sponsor imagery to any AI service unless permission was confirmed.
+    # The operator may enable this only after receiving the required written rights clearance.
+    if os.environ.get("VEXCEL_ALLOW_AI_PROCESSING") != "1":
+        raise HTTPException(403, "Vexcel imagery is not approved for third-party AI processing. "
+                             "Use Gemini on the public USGS image or mark stalls manually.")
+    if not orchestrator.available():
+        raise HTTPException(503, "No AI model is configured, so suggestions are unavailable. Mark the stalls by hand.")
+    try:
+        async with httpx.AsyncClient() as client:
+            image = await vexcel.fetch_image(client, audit.property.lat, audit.property.lon)
+    except Exception as e:
+        raise HTTPException(502, f"Imagery provider unavailable ({type(e).__name__})")
+    try:
+        found, notes, resp = await stalls.suggest(image)
+    except Exception as e:
+        runner.emit(audit, "FETCH_FAILURE", "vision_model", f"Stall suggestions failed ({type(e).__name__}).",
+                    tool="suggest_stalls", error_class=type(e).__name__)
+        raise HTTPException(502, f"The AI model could not read the image ({type(e).__name__}). Mark the stalls by hand.")
+    audit = _audit(audit_id)  # re-read: the request above takes several seconds
+    orchestrator.record_usage(audit, resp)
+    runner.emit(audit, "AGENT_NOTE", "vision_model",
+                f"Suggested {len(found)} possible accessible stall(s) on the {ev.provider} image. "
+                "Suggestions are not counted until a person accepts them.", tool="suggest_stalls", payload=found)
+    return {"suggestions": found, "notes": notes, "model": (resp.response_metadata or {}).get("model_name")}
 
 
 @router.post("/audits/{audit_id}/model")
@@ -247,6 +295,8 @@ async def choose_model(audit_id: str, body: ModelIn):
     audit.evidence = [e for e in audit.evidence if e.provider != "Matterport"] + [ev]
     runner.emit(audit, "FETCH_SUCCESS", "interior_inspector", f"Switched to Matterport scan {body.model_id} ({summary.get('name')}).",
                 tool="matterport.model_api", source_id=f"Matterport:{body.model_id}")
+    runner.step_doorways(audit)  # doorway checks follow the scan being shown
+    runner.reevaluate(audit)
     return ev
 
 

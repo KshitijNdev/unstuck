@@ -170,3 +170,26 @@ def test_markups_need_an_image_and_model_must_be_linked(client):
     aid = run_fixture(client)   # synthetic fixture has a schematic, not an aerial image
     assert client.post(f"/api/audits/{aid}/markups", json={"pins": [], "reviewed_by": "T"}).status_code == 404
     assert client.post(f"/api/audits/{aid}/model", json={"model_id": "abcdef123"}).status_code == 400
+
+
+def test_stall_suggestions_drop_low_confidence_and_bad_entries():
+    from app.agents import stalls
+
+    text = """Here you go: {"stalls":[
+      {"x":0.2,"y":0.3,"kind":"accessible","cue":"blue square","confidence":"high"},
+      {"x":0.5,"y":0.5,"kind":"van","cue":"wide aisle","confidence":"medium"},
+      {"x":0.7,"y":0.7,"kind":"accessible","cue":"car near hatching","confidence":"low"},
+      {"x":1.4,"y":0.1,"kind":"accessible","cue":"off image","confidence":"high"},
+      {"y":0.1,"kind":"accessible","confidence":"high"}],
+      "notes":"Shadows along the storefront."}"""
+    found, notes = stalls.parse(text)
+    assert [(s["x"], s["kind"]) for s in found] == [(0.2, "accessible"), (0.5, "van")]
+    assert notes == "Shadows along the storefront."
+
+
+def test_stall_suggestions_reject_unreadable_reply():
+    import pytest
+    from app.agents import stalls
+
+    with pytest.raises(ValueError):
+        stalls.parse("I could not see any stalls.")

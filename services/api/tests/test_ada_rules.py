@@ -160,3 +160,29 @@ def test_next_steps_point_to_the_right_professional_without_changing_thresholds(
     assert r.check_route_width(36, None, "field").status == r.PASS
     assert r.check_route_width(34, 30, "field").status == r.FAIL             # reduced width only for 24 in or less
     assert r.check_route_width(34, 24, "field").status == r.PASS
+
+
+# ---- doorway openings from a scan's floor plan §404.2.3 -------------------------------------------------------
+def test_scan_opening_clearly_under_32_is_suspected_not_failed():
+    res = r.screen_doorway_opening(28.4, 5.1)
+    assert res.status == r.SUSPECTED and res.observed["method"] == "scan_floorplan"
+
+
+def test_scan_opening_within_tolerance_of_32_needs_measurement():
+    assert r.screen_doorway_opening(31.0, 5.1).status == r.FIELD
+    assert r.screen_doorway_opening(30.99, 5.1).status == r.SUSPECTED
+
+
+def test_wide_scan_opening_never_passes():
+    for w in (32, 36, 60, 156.6):
+        assert r.screen_doorway_opening(w, 5.1).status == r.FIELD
+
+
+def test_implausible_or_missing_scan_opening_is_insufficient():
+    assert r.screen_doorway_opening(0.6, 5.1).status == r.INSUFFICIENT
+    assert r.screen_doorway_opening(19.9, None).status == r.INSUFFICIENT
+    assert r.screen_doorway_opening(None, None).status == r.INSUFFICIENT
+
+
+def test_thick_wall_mentions_the_36_inch_minimum():
+    assert "36 in minimum may apply" in r.screen_doorway_opening(34, 26).rationale
