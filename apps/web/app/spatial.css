@@ -765,14 +765,12 @@ details.av-step-body[open] summary::before { content: "▾"; }
 }
 @media (max-width: 900px) { .rp-body { grid-template-columns: minmax(0, 1fr); gap: 2rem; } }
 .av-step-note { display: block; flex-basis: 100%; margin-top: .1rem; font-weight: 400; color: var(--ink); font-size: .9rem; line-height: 1.45; }
-<<<<<<< Updated upstream
 /* The tour's ruler panel and the doorway note share one column beside the tour (ruler on top, note under it),
    and the tour narrows to make room, so neither covers the other or Matterport's own controls. */
 .st-measure { left: .75rem; top: 4.4rem; width: 300px; max-height: calc(100% - 8.8rem); overflow-y: auto; }
 .st-canvas:has(.st-measure) .st-tour { left: calc(300px + 1.5rem); width: calc(100% - var(--inset) - 300px - 2.25rem); }
 .st-canvas:has(.st-measure) .st-locnote { top: auto; bottom: 4.4rem; max-height: calc(50% - 5.4rem); }
 .st-canvas:has(.st-measure):has(.st-locnote) .st-measure { max-height: calc(50% - 5.4rem); }
-=======
 
 /* ---- Landing: links beside the demo, and finished screenings that open instantly (a free, offline-safe demo path). */
 .lx-alt { flex-wrap: wrap; row-gap: .5rem; }
@@ -875,4 +873,3 @@ details.av-step-body[open] summary::before { content: "▾"; }
   .lx-recent button { padding: .45rem .75rem; }
   .lx-recent button > span:not(.lx-recent-counts) { display: none; }   /* keep name and counts on short screens */
 }
->>>>>>> Stashed changes
