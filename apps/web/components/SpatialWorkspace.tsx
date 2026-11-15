@@ -6,15 +6,17 @@ import { FindingCard } from "@/components/FindingCard";
 import { aerialSources, layerOf, SpatialStage, type Layer } from "@/components/SpatialStage";
 import { SuggestionsPanel } from "@/components/SuggestionsPanel";
 import { rovingKeys, StatusBadge } from "@/components/ui";
-import { startAnalysis, type Audit, type Finding } from "@/lib/api";
+import { startAnalysis, TRIAGE, type Audit, type Finding } from "@/lib/api";
 import { RouteReplay } from "@/components/RouteReplay";
 
-type Filter = "all" | "below" | "review" | "meets";
+type Filter = "all" | "below" | "review" | "meets" | "doors";
 const FILTERS: { id: Filter; label: string; test: (f: Finding) => boolean }[] = [
   { id: "all", label: "All", test: () => true },
   { id: "below", label: "Below threshold", test: (f) => f.status === "NUMERIC_SCREEN_FAIL" },
   { id: "review", label: "Needs a person", test: (f) => f.label !== "measured" },
   { id: "meets", label: "Meets", test: (f) => f.status === "NUMERIC_SCREEN_PASS" },
+  // Scan doorways worth a tape measure: everything the scan could not show to be comfortably wide.
+  { id: "doors", label: "Doors to measure", test: (f) => !!f.observed?.triage && f.observed.triage !== "likely_wide" },
 ];
 type Tab = "checks" | "suggestions" | "log" | "trip";
 const REVIEWER_KEY = "unstuck.reviewer";
@@ -56,6 +58,9 @@ export function SpatialWorkspace({ audit, auditId, selected, onSelect, onChanged
   const pending = (run?.candidates ?? []).filter((c) => c.status === "suggested").length;
   const visible = audit.findings.filter(FILTERS.find((f) => f.id === filter)!.test);
   const count = (t: (f: Finding) => boolean) => audit.findings.filter(t).length;
+  const band = (...names: string[]) => count((f) => names.includes(f.observed?.triage ?? ""));
+  const doorBands = { first: band("narrow", "likely_narrow"), either: band("measure"), wide: band("likely_wide"),
+    total: band("narrow", "likely_narrow", "measure", "likely_wide") };
 
   // Poll only while Gemini is working; the run writes its progress to the audit.
   useEffect(() => {
@@ -161,6 +166,13 @@ export function SpatialWorkspace({ audit, auditId, selected, onSelect, onChanged
             <span><b>{count(FILTERS[2].test)}</b>need a person</span>
             <span><b>{count((f) => f.label === "measured")}</b>measured</span>
           </div>
+          {doorBands.total > 0 && (
+            <p className="sw-triage">
+              <strong>{doorBands.total} scan doorways sorted by width.</strong>{" "}
+              {doorBands.first} to measure first, {doorBands.either} could go either way, {doorBands.wide} likely wide
+              enough. Estimates from the floor plan; none is passed until measured.
+            </p>
+          )}
           <div className="sw-filters" role="group" aria-label="Filter checks">
             {FILTERS.map((f) => (
               <button key={f.id} type="button" aria-pressed={filter === f.id} onClick={() => setFilter(f.id)}>
@@ -177,7 +189,10 @@ export function SpatialWorkspace({ audit, auditId, selected, onSelect, onChanged
                   {!on && (
                     <button type="button" className="sw-row" onClick={() => choose(f)}>
                       <span className="sw-num">{index}</span>
-                      <span className="sw-row-text"><strong>{f.title}</strong><span>{f.location}</span></span>
+                      <span className="sw-row-text">
+                        <strong>{f.title}</strong>
+                        <span>{f.location}{f.observed?.triage ? ` · ${TRIAGE[f.observed.triage]}` : ""}</span>
+                      </span>
                       <StatusBadge status={f.status} />
                     </button>
                   )}

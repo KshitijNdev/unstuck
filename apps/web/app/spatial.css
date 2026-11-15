@@ -137,6 +137,7 @@ body:has(.app-view) > header, body:has(.app-view) > footer { display: none; }
 .sw-tally { display: flex; gap: 1.25rem; padding: 1rem 1.1rem .5rem; font-size: .88rem; color: var(--muted); }
 .sw-tally b { display: block; font-family: "Barlow Condensed", sans-serif; font-size: 1.75rem; line-height: 1; color: var(--ink); }
 .sw-tally .bad b { color: var(--fail); }
+.sw-triage { margin: .25rem 1.1rem .1rem; padding: .5rem .7rem; border-left: 3px solid var(--sign); background: var(--sign-wash); font-size: .88rem; line-height: 1.35; color: var(--ink); }
 .sw-filters { display: flex; flex-wrap: wrap; gap: .3rem; padding: .5rem 1.1rem .9rem; border-bottom: 1px solid var(--line); }
 .sw-filters button { padding: .2rem .55rem; border: 1px solid var(--line); border-radius: 999px; font-size: .8rem; font-weight: 500; background: var(--sheet); cursor: pointer; transition: background-color 120ms; }
 .sw-filters button:hover { background: #fff; }

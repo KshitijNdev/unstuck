@@ -88,7 +88,13 @@ export interface Finding {
   location_id: string;
   location: string;
   required: { value: number; unit: string; condition?: string } | null;
-  observed: { value: number; unit: string; method?: string | null } | null;
+  observed: {
+    value: number; unit: string; method?: string | null;
+    /** Scan doorways only: where the drawn opening puts this door in the measuring queue. Never a result. */
+    triage?: "narrow" | "likely_narrow" | "measure" | "likely_wide";
+    /** Scan doorways only: clear width a hinged door would leave, [low, high] in inches. An estimate. */
+    clear_estimate_in?: [number, number];
+  } | null;
   status: FindingStatus;
   label: "measured" | "suspected" | "review needed";
   confidence: string;
@@ -105,6 +111,12 @@ export interface Finding {
   is_synthetic: boolean;
 }
 
+export const TRIAGE: Record<NonNullable<NonNullable<Finding["observed"]>["triage"]>, string> = {
+  narrow: "Opening under 32 in",
+  likely_narrow: "Measure first",
+  measure: "Could go either way",
+  likely_wide: "Likely wide enough",
+};
 export interface AgentEvent {
   seq: number;
   type: string;

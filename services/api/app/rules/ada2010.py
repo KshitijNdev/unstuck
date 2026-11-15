@@ -292,6 +292,11 @@ def check_door(
 SCAN_OPENING_TOLERANCE_IN = 1.0   # our margin for floor-plan drawing error; not a Matterport accuracy spec
 SCAN_OPENING_MIN_PLAUSIBLE_IN = 20.0  # narrower "doorways" in the wall graph are drawing artefacts
 SCAN_METHOD = "scan_floorplan"
+# Triage allowances. These are our working assumptions for sorting doorways, not ADA or Matterport figures:
+# a hinged door open 90 degrees takes at least its 1 3/4 in leaf plus a 1/2 in stop out of its own width, and if
+# the floor plan drew the rough wall gap instead of the door, the frame takes about another 4 in.
+DOOR_LEAF_AND_STOP_IN = 2.25
+SCAN_OPENING_MAX_LOSS_IN = 6.25
 
 
 def screen_doorway_opening(opening_width_in: float | None, wall_thickness_in: float | None) -> RuleResult:
@@ -300,6 +305,11 @@ def screen_doorway_opening(opening_width_in: float | None, wall_thickness_in: fl
     Outcomes: SUSPECTED (opening clearly under 32 in, so clear width must be too),
     FIELD (opening wide enough that clear width could meet the minimum: a person must measure),
     INSUFFICIENT (no width, or an implausible one). Never PASS or FAIL: the scan does not measure clear width.
+
+    Each plausible doorway also gets a triage band in observed["triage"], so a person knows which to measure first:
+    "narrow" (the opening itself is under the minimum), "likely_narrow" (a hinged door here would leave less than
+    the minimum), "measure" (could land either side), "likely_wide" (clears the minimum even after the largest
+    allowance). Triage orders the work. It never changes the status.
     """
     width = _inches(opening_width_in, "opening_width_in")
     depth = _inches(wall_thickness_in, "wall_thickness_in")
@@ -309,6 +319,8 @@ def screen_doorway_opening(opening_width_in: float | None, wall_thickness_in: fl
         "Width is the doorway opening drawn in the Matterport floor plan, not clear width measured with the door open.",
         "Clear width is narrower than the opening: the door leaf and stops take part of it.",
         f"A {SCAN_OPENING_TOLERANCE_IN:g} in margin is allowed for floor-plan drawing error.",
+        f"Triage assumes a hinged door takes {DOOR_LEAF_AND_STOP_IN:g} to {SCAN_OPENING_MAX_LOSS_IN:g} in of the drawn "
+        "opening (leaf, stop and possibly the frame). These are working allowances, not measurements.",
     ]
     measure = "Measure the clear opening with the door open 90 degrees, in the 3D tour or with a tape on site."
 
@@ -324,7 +336,13 @@ def screen_doorway_opening(opening_width_in: float | None, wall_thickness_in: fl
                       f"The scan draws this doorway {width:.1f} in wide, too narrow to be a real doorway: likely a floor-plan drawing error.",
                       "Check this spot in the 3D tour; if there is a door, measure its clear opening.")
     deep = depth is not None and depth > 24
-    if width < 32 - SCAN_OPENING_TOLERANCE_IN:
+    minimum = 36 if deep else 32
+    tol = SCAN_OPENING_TOLERANCE_IN
+    # Clear width a hinged door would leave: worst case the plan drew the wall gap, best case the door itself.
+    lo, hi = width - tol - SCAN_OPENING_MAX_LOSS_IN, width + tol - DOOR_LEAF_AND_STOP_IN
+    observed["clear_estimate_in"] = [round(max(lo, 0), 1), round(hi, 1)]
+    if width < 32 - tol:
+        observed["triage"] = "narrow"
         return result(SUSPECTED, observed,
                       f"The scan's doorway opening is {width:.1f} in. Clear width cannot be wider than the opening, "
                       f"so it is probably below the 32 in minimum.",
@@ -332,9 +350,24 @@ def screen_doorway_opening(opening_width_in: float | None, wall_thickness_in: fl
                       "review options (offset hinges, wider door or frame) with a door contractor. Widening an opening "
                       "usually needs a building permit; rules vary by city.")
     note = " The wall is over 24 in thick here, so the 36 in minimum may apply." if deep else ""
+    lead = f"The scan's doorway opening is {width:.1f} in. Clear width is narrower than the opening, so this " \
+           f"cannot be screened until someone measures it.{note}"
+    if hi < minimum:
+        observed["triage"] = "likely_narrow"
+        return result(FIELD, observed,
+                      f"{lead} Measure this one first: a hinged door takes at least {DOOR_LEAF_AND_STOP_IN:g} in of its "
+                      f"own width, which would leave about {hi:.1f} in or less against the {minimum} in minimum.",
+                      measure)
+    if lo >= minimum:
+        observed["triage"] = "likely_wide"
+        return result(FIELD, observed,
+                      f"{lead} Low priority: even allowing {SCAN_OPENING_MAX_LOSS_IN:g} in for the frame, door and stop, "
+                      f"about {lo:.1f} in would remain against the {minimum} in minimum.",
+                      "Confirm the clear opening when convenient, in the 3D tour or with a tape on site.")
+    observed["triage"] = "measure"
     return result(FIELD, observed,
-                  f"The scan's doorway opening is {width:.1f} in. Clear width is narrower than the opening, so this "
-                  f"cannot be screened until someone measures it.{note}", measure)
+                  f"{lead} A hinged door here would leave roughly {max(lo, 0):.1f} to {hi:.1f} in, which could land "
+                  f"either side of the {minimum} in minimum.", measure)
 
 
 # --------------------------------------------------------------------------- §403.5.1

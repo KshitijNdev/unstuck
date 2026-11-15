@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { FindingFigure } from "@/components/FindingFigure";
 import { StatusBadge, ErrorNote } from "@/components/ui";
-import { addMeasurement, CONFIDENCE, verifyFinding, type Finding } from "@/lib/api";
+import { addMeasurement, CONFIDENCE, verifyFinding, type Finding, TRIAGE } from "@/lib/api";
 
 const PARKING_FIELDS = [
   { name: "parking_total_spaces", label: "Total spaces in this lot" },
@@ -91,6 +91,13 @@ export function FindingCard({ finding: f, auditId, selected, onSelect, onChanged
 
       <p className="mt-4 max-w-[46rem]">{f.rationale}</p>
       {f.required?.condition && <p className="mt-1 text-[0.95rem] text-muted">{f.observed ? "Applies because" : "Requirement note"}: {f.required.condition}.</p>}
+      {f.observed?.triage && f.observed.clear_estimate_in && (
+        <p className="mt-1 text-[0.95rem] text-muted">
+          <span className="font-semibold text-ink">{TRIAGE[f.observed.triage]}.</span>{" "}
+          A hinged door here would leave about {f.observed.clear_estimate_in[0]} to {f.observed.clear_estimate_in[1]} in
+          clear. Estimated from the scan&apos;s floor plan, not measured.
+        </p>
+      )}
       {f.borderline && <p className="mt-1 text-[0.95rem] font-semibold text-review">Close to the threshold: re-measure before acting.</p>}
       <p className="mt-3 max-w-[46rem]"><span className="font-semibold">Next step: </span>{f.followup}</p>
       <p className="mt-2 text-sm text-muted">{f.citation}. A screening result, not a compliance determination.</p>

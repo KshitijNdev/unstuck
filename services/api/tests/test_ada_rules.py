@@ -186,3 +186,30 @@ def test_implausible_or_missing_scan_opening_is_insufficient():
 
 def test_thick_wall_mentions_the_36_inch_minimum():
     assert "36 in minimum may apply" in r.screen_doorway_opening(34, 26).rationale
+
+
+def test_scan_opening_triage_orders_the_work_without_changing_status():
+    narrow = r.screen_doorway_opening(28.4, 5.1)
+    assert narrow.status == r.SUSPECTED and narrow.observed["triage"] == "narrow"
+    # 33 in drawn: a hinged door leaves at most 33 + 1 - 2.25 = 31.75 in, under 32.
+    first = r.screen_doorway_opening(33.0, 5.1)
+    assert first.status == r.FIELD and first.observed["triage"] == "likely_narrow"
+    assert "Measure this one first" in first.rationale
+    # 36 in drawn: between 28.75 and 34.75 in clear, so it could go either way.
+    either = r.screen_doorway_opening(36.0, 5.1)
+    assert either.status == r.FIELD and either.observed["triage"] == "measure"
+    assert either.observed["clear_estimate_in"] == [28.8, 34.8]
+    # 40 in drawn: at least 40 - 1 - 6.25 = 32.75 in remains. Still not a pass.
+    wide = r.screen_doorway_opening(40.0, 5.1)
+    assert wide.status == r.FIELD and wide.observed["triage"] == "likely_wide"
+    assert "Low priority" in wide.rationale
+
+
+def test_scan_opening_triage_uses_36_in_for_deep_openings():
+    assert r.screen_doorway_opening(40.0, 26).observed["triage"] == "measure"       # 32.75 in is under 36
+    assert r.screen_doorway_opening(44.0, 26).observed["triage"] == "likely_wide"   # 36.75 in remains
+    assert r.screen_doorway_opening(36.0, 26).observed["triage"] == "likely_narrow"  # at most 34.75 in
+
+
+def test_implausible_scan_opening_gets_no_triage():
+    assert "triage" not in r.screen_doorway_opening(12.0, 5.1).observed
