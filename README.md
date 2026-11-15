@@ -114,7 +114,7 @@ services/api    FastAPI
   app/pipeline    runner.py (shared steps, scripted fallback, event log), evaluate.py (measurements -> findings)
   app/routes      audits, events (SSE), measurements, image marks, review, export, featured + copy, portfolio
   app/portfolio.py  portfolio triage: Table 208.2 minimums and the measuring order, no provider calls
-  tests           143 tests: every threshold boundary, missing-data behaviour, API contracts, the Deep Agent graph with a scripted model, doorway screening, token accounting, featured copies, portfolio triage
+  tests           152 tests: every threshold boundary, missing-data behaviour, API contracts, the Deep Agent graph with a scripted model, doorway screening, token accounting, featured copies, portfolio triage
 deploy          Caddyfile, systemd units, update.sh
 docs/HANDOFF.md Full product and engineering brief
 ```
