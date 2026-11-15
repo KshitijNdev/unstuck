@@ -1,0 +1,13 @@
+[Unit]
+Description=Unstuck FastAPI
+After=network.target
+
+[Service]
+User=team
+WorkingDirectory=/home/team/unstuck/services/api
+EnvironmentFile=/home/team/unstuck/services/api/.env
+ExecStart=/home/team/.local/bin/uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
