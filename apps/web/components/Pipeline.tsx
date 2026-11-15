@@ -107,10 +107,14 @@ export function Pipeline() {
         </motion.div>
       </AnimatePresence>
 
-      <button type="button" className="pl-more" aria-expanded={details} onClick={() => setDetails(!details)}>
-        {details ? "Hide technical details" : "Technical details: how the Deep Agent is built"}
-      </button>
-      {details && <div className="pl-details"><AgentExplainer /></div>}
+      {stage.id === "ai" && (
+        <>
+          <button type="button" className="pl-more" aria-expanded={details} onClick={() => setDetails(!details)}>
+            {details ? "Hide technical details" : "Technical details: how the Deep Agent is built"}
+          </button>
+          {details && <div className="pl-details"><AgentExplainer /></div>}
+        </>
+      )}
     </div>
   );
 }
