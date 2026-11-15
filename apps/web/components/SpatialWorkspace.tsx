@@ -1,0 +1,196 @@
+"use client";
+
+import { motion } from "motion/react";
+import { useEffect, useRef, useState } from "react";
+import { FindingCard } from "@/components/FindingCard";
+import { aerialSources, layerOf, SpatialStage, type Layer } from "@/components/SpatialStage";
+import { SuggestionsPanel } from "@/components/SuggestionsPanel";
+import { StatusBadge } from "@/components/ui";
+import { startAnalysis, type Audit, type Finding } from "@/lib/api";
+
+type Filter = "all" | "below" | "review" | "meets";
+const FILTERS: { id: Filter; label: string; test: (f: Finding) => boolean }[] = [
+  { id: "all", label: "All", test: () => true },
+  { id: "below", label: "Below threshold", test: (f) => f.status === "NUMERIC_SCREEN_FAIL" },
+  { id: "review", label: "Needs a person", test: (f) => f.label !== "measured" },
+  { id: "meets", label: "Meets", test: (f) => f.status === "NUMERIC_SCREEN_PASS" },
+];
+type Tab = "checks" | "suggestions" | "log";
+const REVIEWER_KEY = "unstuck.reviewer";
+const INSET = 440 + 16 * 2;  // floating inspector width plus its margins
+
+export function SpatialWorkspace({ audit, auditId, selected, onSelect, onChanged, log }: {
+  audit: Audit; auditId: string; selected: Finding | null; onSelect: (id: string) => void;
+  onChanged: () => Promise<void>; log: React.ReactNode;
+}) {
+  const [layer, setLayer] = useState<Layer>("aerial");
+  const [filter, setFilter] = useState<Filter>("all");
+  const [tab, setTab] = useState<Tab>("checks");
+  const [aerialId, setAerialId] = useState<string | null>(null);
+  const [focusId, setFocusId] = useState<string | null>(null);
+  const [askPublic, setAskPublic] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  // The workspace only renders after the audit loads in the browser, so localStorage is available here.
+  const [reviewer, setReviewerState] = useState(() => localStorage.getItem(REVIEWER_KEY) ?? "");
+  const setReviewer = (v: string) => { setReviewerState(v); localStorage.setItem(REVIEWER_KEY, v); };
+  const openRef = useRef<HTMLLIElement>(null);
+
+  const sources = aerialSources(audit);
+  const site = sources.find((e) => e.id === aerialId) ?? sources[0];
+  const run = site?.geometry?.ai;
+  const running = audit.evidence.some((e) => e.geometry?.ai?.status === "running");
+  const pending = (run?.candidates ?? []).filter((c) => c.status === "suggested").length;
+  const visible = audit.findings.filter(FILTERS.find((f) => f.id === filter)!.test);
+  const count = (t: (f: Finding) => boolean) => audit.findings.filter(t).length;
+
+  // Poll only while Gemini is working; the run writes its progress to the audit.
+  useEffect(() => {
+    if (!running) return;
+    const t = setInterval(() => { void onChanged(); }, 1500);
+    return () => clearInterval(t);
+  }, [running, onChanged]);
+
+  useEffect(() => {
+    const li = openRef.current;
+    li?.parentElement?.scrollTo({ top: li.offsetTop, behavior: "smooth" });
+  }, [selected?.id]);
+
+  const choose = (f: Finding) => {
+    onSelect(f.id);
+    setFocusId(null);
+    setLayer(layerOf(f) === "interior" && !audit.evidence.some((e) => e.asset_type === "tour") ? "aerial" : layerOf(f));
+  };
+
+  const focusCandidate = (id: string | null) => {
+    setFocusId(id);
+    if (id) { setLayer("aerial"); setTab("suggestions"); }
+  };
+
+  async function analyze(usePublic: boolean) {
+    setAskPublic(false);
+    setAiError(null);
+    try {
+      const r = await startAnalysis(auditId, usePublic ? { use_public_imagery: true } : { evidence_id: site?.id });
+      setAerialId(r.evidence_id);
+      setFocusId(null);
+      setTab("suggestions");
+      await onChanged();
+    } catch (e) {
+      setAiError((e as Error).message);
+      setTab("suggestions");
+    }
+  }
+
+  const canAnalyze = site?.asset_type === "aerial_image" && !site.is_synthetic;
+  const blocked = site?.provider === "Vexcel";  // the server enforces this too; asking first avoids a pointless refusal
+  const progress = run?.status === "running" ? run.progress : null;
+  const analyzeControl = (
+    <div className="st-analyze">
+      {progress ? (
+        <div className="st-progress" role="status" aria-live="polite">
+          <span className="st-spin" aria-hidden="true" />
+          {progress.done === 0 && progress.view.startsWith("fetch") ? "Fetching image" : `Analyzing ${progress.view}`}
+          <span className="st-progress-bar"><span style={{ width: `${(progress.done / (progress.total || 1)) * 100}%` }} /></span>
+        </div>
+      ) : pending > 0 ? (
+        <button type="button" className="st-tool primary" onClick={() => setTab("suggestions")}>
+          Review {pending} suggestion{pending === 1 ? "" : "s"}
+        </button>
+      ) : (
+        <button type="button" className={`st-tool ${run?.status === "complete" ? "" : "primary"}`} disabled={!canAnalyze || running}
+          title={canAnalyze ? "Find candidate accessible-parking features with Gemini" : "Only real aerial imagery can be analyzed"}
+          onClick={() => (blocked ? setAskPublic(!askPublic) : analyze(false))} aria-expanded={blocked ? askPublic : undefined}>
+          {run?.status === "complete" ? "Analyze again" : "Analyze imagery"}
+        </button>
+      )}
+      {askPublic && (
+        <div className="st-pop" role="dialog" aria-label="Vexcel imagery can’t be analyzed">
+          <p>Vexcel’s hackathon terms don’t say its imagery may be sent to a third-party AI service, so Unstuck won’t send it.</p>
+          <p>Analyze the public USGS image of the same site instead? Suggestions stay attached to that image.</p>
+          <div>
+            <button type="button" className="btn btn-primary btn-sm" onClick={() => analyze(true)}>Analyze public image</button>
+            <button type="button" className="btn btn-sm" onClick={() => setAskPublic(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  const tabs: { id: Tab; label: string; badge?: number }[] = [
+    { id: "checks", label: "Findings", badge: audit.findings.length },
+    { id: "suggestions", label: "AI review", badge: pending || undefined },
+    { id: "log", label: "Activity" },
+  ];
+
+  return (
+    <section id="workspace" aria-label="Inspection workspace" className="sw-grid no-print">
+      <SpatialStage audit={audit} auditId={auditId} selected={selected} layer={layer} setLayer={setLayer}
+        onSelect={(id) => { const f = audit.findings.find((x) => x.id === id); if (f) { choose(f); setTab("checks"); } }}
+        onChanged={onChanged} aerialId={site?.id ?? null} setAerialId={setAerialId}
+        focusId={focusId} onFocus={focusCandidate} analysis={analyzeControl} inset={INSET} />
+
+      <aside className="sw-panel" aria-label="Inspector">
+        <div className="sw-tabs" role="tablist" aria-label="Inspector">
+          {tabs.map((t) => (
+            <button key={t.id} role="tab" type="button" aria-selected={tab === t.id} aria-controls={`sw-${t.id}`} onClick={() => setTab(t.id)}>
+              {t.label}{t.badge != null && <span className="sw-badge">{t.badge}</span>}
+            </button>
+          ))}
+        </div>
+
+        <div id="sw-checks" role="tabpanel" hidden={tab !== "checks"} className="sw-tabpanel">
+          <div className="sw-tally" aria-label="Result summary">
+            <span className={count(FILTERS[1].test) ? "bad" : ""}><b>{count(FILTERS[1].test)}</b>below threshold</span>
+            <span><b>{count(FILTERS[2].test)}</b>need a person</span>
+            <span><b>{count((f) => f.label === "measured")}</b>measured</span>
+          </div>
+          <div className="sw-filters" role="group" aria-label="Filter checks">
+            {FILTERS.map((f) => (
+              <button key={f.id} type="button" aria-pressed={filter === f.id} onClick={() => setFilter(f.id)}>
+                {f.label} <span>{count(f.test)}</span>
+              </button>
+            ))}
+          </div>
+          <ul className="sw-list">
+            {visible.map((f) => {
+              const index = audit.findings.indexOf(f) + 1;
+              const on = selected?.id === f.id;
+              return (
+                <li key={f.id} ref={on ? openRef : undefined} className={on ? "open" : ""}>
+                  {!on && (
+                    <button type="button" className="sw-row" onClick={() => choose(f)}>
+                      <span className="sw-num">{index}</span>
+                      <span className="sw-row-text"><strong>{f.title}</strong><span>{f.location}</span></span>
+                      <StatusBadge status={f.status} />
+                    </button>
+                  )}
+                  {on && (
+                    <motion.ul className="sw-card" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}>
+                      <FindingCard finding={f} auditId={auditId} selected onSelect={() => choose(f)} onChanged={onChanged} />
+                    </motion.ul>
+                  )}
+                </li>
+              );
+            })}
+            {visible.length === 0 && audit.findings.length > 0 && <li className="sw-none">No checks match this filter.</li>}
+            {audit.findings.length === 0 && <li className="sw-none">No checks were evaluated. The audit found no usable evidence.</li>}
+          </ul>
+        </div>
+
+        <div id="sw-suggestions" role="tabpanel" hidden={tab !== "suggestions"} className="sw-tabpanel">
+          <SuggestionsPanel auditId={auditId} site={site} run={run} reviewer={reviewer} setReviewer={setReviewer}
+            focusId={focusId} onFocus={focusCandidate} onChanged={onChanged} error={aiError}
+            analyze={canAnalyze && !running ? (blocked ? (
+              <>
+                <p>This is Vexcel imagery, which Unstuck won’t send to a third-party AI service. The public USGS image of the same site can be analyzed instead.</p>
+                <button type="button" className="btn btn-primary btn-sm" onClick={() => analyze(true)}>Analyze public image</button>
+              </>
+            ) : <button type="button" className="btn btn-primary btn-sm" onClick={() => analyze(false)}>Analyze imagery</button>) : null} />
+        </div>
+
+        <div id="sw-log" role="tabpanel" hidden={tab !== "log"} className="sw-tabpanel sw-log">{log}</div>
+      </aside>
+    </section>
+  );
+}

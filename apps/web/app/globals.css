@@ -6,7 +6,11 @@
   Sign blue is the blue of the accessible-parking sign (the one strong colour).
   Paint yellow marks what still needs a person; red is reserved for "below threshold".
 */
+/* One page container everywhere so header, content and footer share edges. */
+.wrap { width: 100%; max-width: 1360px; margin-inline: auto; padding-inline: var(--gutter); }
+
 :root {
+  --gutter: 1.25rem;
   --concrete: #e6e7e2;
   --sheet: #f7f7f3;
   --ink: #17212b;
@@ -54,6 +58,8 @@
   --font-sans: "Barlow", system-ui, sans-serif;
   --font-display: "Barlow Condensed", "Barlow", system-ui, sans-serif;
 }
+
+@media (min-width: 768px) { :root { --gutter: 2rem; } }
 
 html {
   scroll-padding-top: 5rem;

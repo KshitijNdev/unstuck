@@ -142,6 +142,26 @@ def test_route_estimate_and_borderline():
     assert r.check_route_width(35.8, 10, "manual").status == r.FIELD
 
 
+# ---- origin/main 4cd2116: next steps name the right professional; thresholds unchanged ----
+def test_next_steps_point_to_the_right_professional_without_changing_thresholds():
+    count, van = r.check_parking_facility(75, 2, 0, method="field")
+    assert count.status == r.FAIL and count.required["value"] == 3          # Table 208.2, unchanged
+    assert van.status == r.FAIL and van.required["value"] == 1
+    assert "striping and signage contractor" in count.followup and "permit" in count.followup
+    assert "van-accessible" in van.followup and "§502" in van.followup
+
+    door = r.check_door(31, 20, "field")
+    assert door.status == r.FAIL and door.required["value"] == 32           # 32 in minimum, unchanged
+    assert "door contractor" in door.followup and "building permit" in door.followup
+    assert r.check_door(32, 20, "field").status == r.PASS
+
+    narrow = r.check_route_width(30, None, "field")
+    assert narrow.status == r.FAIL and "licensed surveyor" in narrow.followup
+    assert r.check_route_width(36, None, "field").status == r.PASS
+    assert r.check_route_width(34, 30, "field").status == r.FAIL             # reduced width only for 24 in or less
+    assert r.check_route_width(34, 24, "field").status == r.PASS
+
+
 # ---- doorway openings from a scan's floor plan §404.2.3 -------------------------------------------------------
 def test_scan_opening_clearly_under_32_is_suspected_not_failed():
     res = r.screen_doorway_opening(28.4, 5.1)
