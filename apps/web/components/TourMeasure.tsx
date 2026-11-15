@@ -27,6 +27,7 @@ declare global {
 
 const SDK_SRC = "https://static.matterport.com/showcase-sdk/latest.js";
 const REVIEWER_KEY = "unstuck.reviewer";
+const REFUSED_KEY = "unstuck.mpSdkRefused";   // remembers, per tab, that Matterport refused the key for this site
 const M_TO_IN = 1 / 0.0254;
 type Line = { sid: string; meters: number; inches: number };
 
@@ -56,7 +57,10 @@ export function TourMeasure({ src, title, modelId, audit, auditId, selected, onC
   // undefined = still asking the API for the key, null = no key (plain embed).
   const [key, setKey] = useState<string | null | undefined>(undefined);
   const [sdk, setSdk] = useState<MpSdk | null>(null);
-  const [problem, setProblem] = useState<string | null>(null);
+  // "refused" = Matterport rejected the key for this site's address; "failed" = anything else. Either way the
+  // tour falls back to the plain embed so it keeps working.
+  const [problem, setProblem] = useState<"refused" | "failed" | null>(null);
+  const [noteOpen, setNoteOpen] = useState(true);
   const [active, setActive] = useState(false);
   const [lines, setLines] = useState<Line[]>([]);
   const doors = audit.property.doors;
@@ -69,6 +73,9 @@ export function TourMeasure({ src, title, modelId, audit, auditId, selected, onC
 
   useEffect(() => {
     let off = false;
+    let refused = false;
+    try { refused = sessionStorage.getItem(REFUSED_KEY) === location.origin; } catch { /* storage blocked */ }
+    if (refused) { queueMicrotask(() => { if (!off) { setProblem("refused"); setKey(null); } }); return () => { off = true; }; }
     getMatterportSdk().then((r) => { if (!off) setKey(r.application_key ?? null); }).catch(() => { if (!off) setKey(null); });
     return () => { off = true; };
   }, []);
@@ -100,7 +107,12 @@ export function TourMeasure({ src, title, modelId, audit, auditId, selected, onC
         }));
         setSdk(s);
       } catch (e) {
-        if (!off) setProblem((e as Error)?.message || "The Matterport SDK did not connect");
+        if (off) return;
+        // Never show the SDK's own message: it echoes the key. Drop the key and reload the tour as a plain embed.
+        const refused = /mismatch|referr|authoriz|invalid/i.test(String((e as Error)?.message ?? e));
+        if (refused) { try { sessionStorage.setItem(REFUSED_KEY, location.origin); } catch { /* storage blocked */ } }
+        setProblem(refused ? "refused" : "failed");
+        setKey(null);
       }
     };
     el.addEventListener("load", connect, { once: true });
@@ -143,12 +155,20 @@ export function TourMeasure({ src, title, modelId, audit, auditId, selected, onC
     <>
       <iframe ref={frame} src={key ? `${src}&play=1&qs=1&applicationKey=${encodeURIComponent(key)}` : src}
         allow="xr-spatial-tracking; fullscreen" allowFullScreen title={title} className="st-tour" onLoad={onLoad} />
-      {key && (
+      {problem && noteOpen && (
+        <div className="st-measure" role="note">
+          <p>
+            {problem === "refused"
+              ? "Measuring from this page is off: this site’s address is not registered for the Matterport SDK key."
+              : "Measuring from this page is unavailable right now."}{" "}
+            The tour’s own ruler still works. Read the length there and enter it on the door check.
+          </p>
+          <button type="button" className="btn btn-sm" onClick={() => setNoteOpen(false)}>Dismiss</button>
+        </div>
+      )}
+      {key && !problem && (
         <div className="st-measure" role="region" aria-label="Measure a door in the 3D tour">
-          {problem && (
-            <p>Measuring from this page is unavailable ({problem}). Use the tour’s ruler and type the value on the door check.</p>
-          )}
-          {!problem && !sdk && <p role="status">Connecting the ruler…</p>}
+          {!sdk && <p role="status">Connecting the ruler…</p>}
           {sdk && !active && !line && (
             <>
               <button type="button" className="btn btn-primary btn-sm" onClick={() => void sdk.Measurements.toggleMode(true)}>

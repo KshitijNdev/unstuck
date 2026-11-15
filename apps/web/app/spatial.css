@@ -98,6 +98,7 @@ body:has(.app-view) > header, body:has(.app-view) > footer { display: none; }
 .st-measure { position: absolute; z-index: 5; left: .75rem; top: 4.25rem; width: 19rem; max-width: calc(100% - 1.5rem); padding: .8rem .9rem;
   border-radius: 8px; background: var(--sheet); color: var(--ink); font-size: .88rem; line-height: 1.35; box-shadow: 0 12px 32px rgba(0,0,0,.4); }
 .st-measure p { color: var(--muted); }
+.st-measure[role="note"] button { margin-top: .5rem; }
 .st-measure > button + p, .st-measure form > p:last-child { margin-top: .5rem; }
 .st-measure form { display: grid; gap: .5rem; }
 .st-measure label { display: grid; gap: .15rem; font-weight: 600; }
