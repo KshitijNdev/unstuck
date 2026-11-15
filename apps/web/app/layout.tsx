@@ -7,6 +7,7 @@ import "@fontsource/barlow/700.css";
 import "@fontsource/barlow-condensed/600.css";
 import "@fontsource/barlow-condensed/700.css";
 import "./globals.css";
+import "./spatial.css";
 import { Providers } from "@/components/Providers";
 
 export const metadata: Metadata = {
@@ -23,14 +24,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           Skip to content
         </a>
         <header className="no-print sticky top-0 z-30 border-b border-line bg-concrete/90 backdrop-blur">
-          <div className="mx-auto flex max-w-6xl items-center justify-between gap-6 px-5 py-3">
+          <div className="wrap flex items-center justify-between gap-6 py-3">
             <Link href="/" className="flex items-center gap-2.5" aria-label="Unstuck home">
               <Mark />
               <span className="font-display text-[1.65rem] font-bold leading-none">unstuck</span>
             </Link>
             <nav aria-label="Main" className="flex items-center gap-5 text-[0.95rem]">
-              <Link href="/#how" className="hidden font-medium hover:underline sm:inline">How it works</Link>
-              <Link href="/#screen" className="btn btn-primary btn-sm">Screen a building</Link>
+              <Link href="/" className="font-medium hover:underline">Find a property</Link>
             </nav>
           </div>
         </header>
@@ -38,7 +38,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <Providers>{children}</Providers>
         </main>
         <footer className="border-t border-line">
-          <div className="mx-auto grid max-w-6xl gap-2 px-5 py-6 text-sm text-muted sm:grid-cols-2">
+          <div className="wrap grid gap-2 py-6 text-sm text-muted sm:grid-cols-2">
             <p>
               <strong className="text-ink">Screening, not certification.</strong> Unstuck is not a CASp or RAS inspection
               or a legal determination.

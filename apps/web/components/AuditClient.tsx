@@ -2,11 +2,10 @@
 
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
-import { EvidenceView } from "@/components/EvidenceView";
-import { FindingCard } from "@/components/FindingCard";
-import { RouteReplay } from "@/components/RouteReplay";
-import { CoverageCards, ErrorNote, SyntheticBanner } from "@/components/ui";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { SpatialWorkspace } from "@/components/SpatialWorkspace";
+import { IntegrationsPanel } from "@/components/IntegrationsPanel";
+import { ErrorNote } from "@/components/ui";
 import { API, getAudit, type AgentEvent, type Audit } from "@/lib/api";
 
 const EVENT_ICON: Record<string, string> = {
@@ -26,7 +25,7 @@ const human = (s: string) => {
 
 function Timeline({ events, running }: { events: AgentEvent[]; running: boolean }) {
   return (
-    <ol aria-live="polite" className="max-h-[26rem] space-y-3 overflow-y-auto pr-2 text-[0.95rem]">
+    <ol aria-live="polite" className="space-y-3 text-[0.95rem]">
       <AnimatePresence initial={false}>
         {events.map((e) => (
           <motion.li
@@ -73,6 +72,17 @@ export function AuditClient({ id }: { id: string }) {
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showIg, setShowIg] = useState(false);
+  const igRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showIg) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setShowIg(false); };
+    const onDown = (e: MouseEvent) => { if (!igRef.current?.contains(e.target as Node)) setShowIg(false); };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("mousedown", onDown);
+    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("mousedown", onDown); };
+  }, [showIg]);
 
   const refresh = useCallback(async () => {
     try {
@@ -116,136 +126,109 @@ export function AuditClient({ id }: { id: string }) {
 
   const done = audit?.status === "COMPLETE" || audit?.status === "FAILED";
   const selected = audit?.findings.find((f) => f.id === selectedId) ?? null;
-  const counts = audit
-    ? { measured: audit.findings.filter((f) => f.label === "measured").length,
-        suspected: audit.findings.filter((f) => f.label === "suspected").length,
-        review: audit.findings.filter((f) => f.label === "review needed").length,
-        below: audit.findings.filter((f) => f.status === "NUMERIC_SCREEN_FAIL").length }
-    : null;
+
+  const plan = (
+    <>
+      <p className="lg-sub">
+        {!audit
+          ? "Loading the plan…"
+          : audit.engine === "claude_agent"
+            ? "A Claude agent wrote this plan and chose each tool call. Check results come from the rule engine, not the model."
+            : "Scripted pipeline: fixed steps, no AI model involved."}
+      </p>
+      <ol className="lg-plan">
+        {(audit?.plan ?? []).map((p, i) => <li key={p}><span>{i + 1}</span>{p}</li>)}
+      </ol>
+    </>
+  );
+
+  if (!done) {
+    return (
+      <div className="wrap au-running">
+        {error && <ErrorNote message={error} />}
+        <p className="text-[0.95rem] text-muted"><Link href="/" className="underline underline-offset-2">Start</Link> / Audit {id}</p>
+        <h1>{audit?.property.name ?? "Loading audit…"}</h1>
+        <p className="flex items-center gap-2 text-muted" role="status">
+          <span className="inline-block size-2 animate-pulse rounded-full bg-sign" aria-hidden="true" /> Gathering evidence
+        </p>
+        <div className="au-running-grid">
+          <section><h2>Plan</h2>{plan}</section>
+          <section><h2>Activity</h2><Timeline events={events} running /></section>
+        </div>
+      </div>
+    );
+  }
+
+  const log = audit && (
+    <div className="lg">
+      {audit.narrative && (
+        <figure className="lg-quote">
+          <blockquote>{audit.narrative}</blockquote>
+          <figcaption>Summary written by the AI agent. Check it against the results.</figcaption>
+        </figure>
+      )}
+      <section><h3>Plan</h3>{plan}</section>
+      <section><h3>Activity</h3><Timeline events={events} running={false} /></section>
+      <section>
+        <h3>Data sources</h3>
+        <ul className="lg-sources">
+          {audit.data_availability.map((s) => (
+            <li key={s.provider}>
+              <span className={`lg-dot ${s.state}`} aria-hidden="true" />
+              <strong>{s.provider}</strong> <span>{s.state}</span>
+              <p>{s.detail}</p>
+            </li>
+          ))}
+        </ul>
+      </section>
+      {audit.usage?.length > 0 && (
+        <section>
+          <h3>AI use</h3>
+          {audit.usage.map((u) => {
+            const input = u.input_tokens + u.cache_write_tokens + u.cache_read_tokens;
+            return (
+              <p key={u.model} className="lg-sub" title={u.price_note ?? undefined}>
+                {u.model}: {u.requests} requests, {input.toLocaleString()} input and {u.output_tokens.toLocaleString()} output tokens
+                {u.est_cost_usd != null ? `, about $${u.est_cost_usd.toFixed(3)} at list price` : ""}.
+              </p>
+            );
+          })}
+        </section>
+      )}
+    </div>
+  );
 
   return (
-    <div className="mx-auto max-w-6xl space-y-12 px-5 py-10">
-      {error && <ErrorNote message={error} />}
-
-      <section>
-        <p className="text-[0.95rem] text-muted">
-          <Link href="/" className="underline underline-offset-2">Start</Link>
-          <span aria-hidden="true"> / </span>
-          Audit {id}
-        </p>
-        <h1 className="mt-2 font-display text-[2.8rem] font-bold leading-none sm:text-[3.4rem]">
-          {audit?.property.name ?? "Screening"}
-        </h1>
-        {audit && (
-          <dl className="mt-4 flex flex-wrap gap-x-8 gap-y-2">
-            <div><dt className="text-sm text-muted">Address</dt><dd className="font-medium">{audit.property.address ?? "Not recorded"}</dd></div>
-            <div><dt className="text-sm text-muted">Use type</dt><dd className="font-medium">{audit.property.type ?? "Unknown"}</dd></div>
-            <div><dt className="text-sm text-muted">Year built</dt><dd className="font-medium">{audit.property.year_built ?? "Unknown"}</dd></div>
-          </dl>
-        )}
-        {audit?.is_synthetic && <div className="mt-5"><SyntheticBanner /></div>}
-      </section>
-
-      <section aria-labelledby="act-h" className="grid gap-px border border-line bg-line lg:grid-cols-[1fr_1.15fr]">
-        <div className="bg-sheet p-5">
-          <h2 id="act-h" className="font-display text-[1.8rem] font-bold leading-none">Plan</h2>
-          <p className="mt-2 text-[0.95rem] text-muted">
-            {!audit
-              ? "Loading the plan…"
-              : audit.engine === "claude_agent"
-                ? "A Claude agent wrote this plan and chose each tool call. Check results come from the rule engine, not the model."
-                : "Scripted pipeline: fixed steps, no AI model involved."}
+    <div className="app-view">
+      <header className="au-bar">
+        <Link href="/" className="au-home" aria-label="Unstuck home, start another screening">unstuck</Link>
+        <div className="au-id">
+          <h1>{audit?.property.name}</h1>
+          <p>
+            {[audit?.property.address ?? "Address not recorded", audit?.property.type, audit?.property.year_built && `built ${audit.property.year_built}`]
+              .filter(Boolean).join(", ")}
           </p>
-          <ol className="mt-4 space-y-2">
-            <AnimatePresence initial={false}>
-              {(audit?.plan ?? []).map((p, i) => (
-                <motion.li key={p} className="grid grid-cols-[1.75rem_1fr] gap-1"
-                  initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
-                  <span className="font-display text-lg font-bold text-sign">{i + 1}</span>
-                  <span>{p}</span>
-                </motion.li>
-              ))}
-            </AnimatePresence>
-          </ol>
-
-          <AnimatePresence>
-            {done && audit?.narrative && (
-              <motion.figure key="summary" className="mt-6 border-l-4 border-ink pl-4"
-                initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                <blockquote className="text-[1.05rem]">{audit.narrative}</blockquote>
-                <figcaption className="mt-2 text-sm text-muted">Summary written by the AI agent. Check it against the results below.</figcaption>
-              </motion.figure>
+        </div>
+        <div className="au-actions">
+          {audit?.is_synthetic && <span className="au-chip" title="This property does not exist and no value was observed at a real building.">Synthetic demo data</span>}
+          {audit?.status === "FAILED" && <span className="au-chip bad">Audit stopped early</span>}
+          <div className="au-ig" ref={igRef}>
+            <button type="button" className="btn btn-sm" aria-expanded={showIg} aria-controls="au-ig-panel" onClick={() => setShowIg(!showIg)}>
+              Integrations &amp; AI
+            </button>
+            {showIg && audit && (
+              <div id="au-ig-panel" className="au-ig-panel" role="dialog" aria-label="Integrations and AI status">
+                <IntegrationsPanel audit={audit} />
+              </div>
             )}
-          </AnimatePresence>
-
-          {done && counts && (
-            <motion.div className="mt-6 flex flex-wrap items-center justify-between gap-4 bg-concrete p-4"
-              initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
-              <p>
-                <strong>{audit!.findings.length} checks.</strong>{" "}
-                {counts.below > 0 && <span className="font-semibold text-fail">{counts.below} below threshold. </span>}
-                {counts.measured} measured, {counts.suspected} suspected, {counts.review} need review.
-              </p>
-              <Link className="btn btn-primary btn-sm" href={`/audits/${id}/report`}>Open the action plan</Link>
-            </motion.div>
-          )}
-
-          {done && audit && audit.usage?.length > 0 && (
-            <div className="mt-4 space-y-1 text-sm text-muted">
-              {audit.usage.map((u) => {
-                const input = u.input_tokens + u.cache_write_tokens + u.cache_read_tokens;
-                return (
-                  <p key={u.model} title={u.price_note ?? undefined}>
-                    AI use ({u.model}): {u.requests} requests, {input.toLocaleString()} input tokens
-                    ({u.cache_read_tokens.toLocaleString()} cached), {u.output_tokens.toLocaleString()} output tokens
-                    {u.est_cost_usd != null ? `, about $${u.est_cost_usd.toFixed(3)} at list price` : ", no price on file"}.
-                  </p>
-                );
-              })}
-            </div>
-          )}
+          </div>
+          <Link className="btn btn-sm" href={`/audits/${id}/report`}>Action plan</Link>
         </div>
-
-        <div className="bg-sheet p-5">
-          <h2 className="font-display text-[1.8rem] font-bold leading-none">Activity</h2>
-          <p className="mb-4 mt-2 text-[0.95rem] text-muted">Every step and tool call, as it happens.</p>
-          <Timeline events={events} running={!done} />
-        </div>
-      </section>
-
-      {done && audit && (
-        <>
-          <section aria-labelledby="trip-h">
-            <h2 id="trip-h" className="font-display text-[2.2rem] font-bold leading-none">The trip in</h2>
-            <p className="mb-4 mt-2 text-muted">The same checks, in the order a wheelchair user meets them.</p>
-            <RouteReplay findings={audit.findings} />
-          </section>
-
-          <section aria-labelledby="ev-h">
-            <h2 id="ev-h" className="font-display text-[2.2rem] font-bold leading-none">Evidence</h2>
-            <p className="mb-4 mt-2 text-muted">
-              {selected ? `Showing ${selected.title.toLowerCase()} at ${selected.location}.` : "Choose “Show evidence” on a check to point at it here."}
-            </p>
-            <EvidenceView evidence={audit.evidence} selected={selected} auditId={id} onChanged={refresh} />
-          </section>
-
-          <section aria-labelledby="find-h">
-            <h2 id="find-h" className="font-display text-[2.2rem] font-bold leading-none">Checks</h2>
-            <p className="mt-2 text-muted">Most urgent first. Each one compares a single measurement with one threshold.</p>
-            <ul className="mt-5 space-y-4">
-              {audit.findings.map((f) => (
-                <FindingCard key={f.id} finding={f} auditId={id} selected={f.id === selectedId}
-                  onSelect={() => { setSelectedId(f.id); document.getElementById("ev-h")?.scrollIntoView({ block: "start" }); }}
-                  onChanged={refresh} />
-              ))}
-            </ul>
-          </section>
-
-          <section aria-labelledby="cov-h">
-            <h2 id="cov-h" className="font-display text-[1.8rem] font-bold leading-none">Data used in this audit</h2>
-            <div className="mt-4"><CoverageCards sources={audit.data_availability} /></div>
-          </section>
-        </>
+      </header>
+      {error && <div className="au-err"><ErrorNote message={error} /></div>}
+      {audit && (
+        <SpatialWorkspace audit={audit} auditId={id} selected={selected ?? audit.findings[0] ?? null}
+          onSelect={setSelectedId} onChanged={refresh} log={log} />
       )}
     </div>
   );

@@ -1,4 +1,5 @@
-export const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+// The local API runs on 8173 (see START_UNSTUCK_SPATIAL.command); NEXT_PUBLIC_API_URL overrides it.
+export const API = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8173";
 
 export type FindingStatus =
   | "NUMERIC_SCREEN_FAIL"
@@ -19,7 +20,47 @@ export interface SourceStatus {
 
 export interface Region { id: string; label: string; x: number; y: number; w: number; h: number; kind: string }
 
-export interface Pin { x: number; y: number; kind: "accessible" | "van" }
+export interface Pin { x: number; y: number; kind: "accessible" | "van"; candidate_id?: string | null }
+
+export type CandidateCategory = "accessible_symbol" | "parking_stall" | "access_aisle" | "curb_ramp";
+
+/** A Gemini visual suggestion. Box is 0-1 of the full image, top-left origin. Never a measurement. */
+export interface Candidate {
+  id: string;
+  category: CandidateCategory;
+  box: { x: number; y: number; w: number; h: number };
+  confidence: "high" | "medium" | "low";
+  note: string;
+  view: string;
+  status: "suggested" | "accepted" | "rejected";
+  van?: boolean;
+  original_category?: CandidateCategory;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+}
+
+export interface AiRun {
+  status: "running" | "complete" | "failed";
+  progress?: { done: number; total: number; view: string } | null;
+  model?: string;
+  sdk?: string;
+  image_width?: number;
+  image_height?: number;
+  views?: string[];
+  rejected_boxes?: number;
+  notes?: string[];
+  candidates?: Candidate[];
+  error?: { kind: string; message: string } | null;
+  started_at?: string;
+  finished_at?: string;
+}
+
+export const CATEGORY_LABEL: Record<CandidateCategory, string> = {
+  accessible_symbol: "Accessible symbol",
+  parking_stall: "Accessible stall",
+  access_aisle: "Access aisle",
+  curb_ramp: "Curb ramp",
+};
 
 export interface Evidence {
   id: string;
@@ -29,7 +70,7 @@ export interface Evidence {
   capture_date: string | null;
   retrieved_at: string | null;
   view_url: string | null;
-  geometry: { regions?: Region[]; summary?: Record<string, unknown>; pins?: Pin[]; pins_by?: string } | null;
+  geometry: { regions?: Region[]; summary?: Record<string, unknown>; pins?: Pin[]; pins_by?: string; ai?: AiRun } | null;
   scale: Record<string, unknown> | null;
   rights: string | null;
   quality: string | null;
@@ -59,6 +100,7 @@ export interface Finding {
   review_status: "NOT_REVIEWED" | "APPROVED" | "REJECTED" | "NEEDS_FIELD_VISIT";
   reviewed_by: string | null;
   reviewed_at: string | null;
+  review_note?: string | null;
   is_synthetic: boolean;
 }
 
@@ -111,8 +153,22 @@ export interface UsageTotals {
 
 export const getUsage = () => request<UsageTotals>("/api/usage");
 
+export interface Measurement {
+  id: string;
+  location_id: string;
+  name: string;
+  value: number;
+  unit: string;
+  method: string;
+  evidence_id: string | null;
+  reviewed_by: string | null;
+  notes: string | null;
+  recorded_at: string;
+}
+
 export interface Audit {
   id: string;
+  measurements: Measurement[];
   status: "QUEUED" | "RUNNING" | "COMPLETE" | "FAILED";
   engine: string;
   narrative: string | null;
@@ -151,6 +207,7 @@ export interface CostarHit {
   year_built: number | null;
   surface_spaces: number | null;
   model_ids: string[];
+  vexcel_region: string | null;   // Vexcel hackathon geofence the site falls in, or null if imagery would be refused
 }
 
 export const searchProperties = (q: string) =>
@@ -158,14 +215,36 @@ export const searchProperties = (q: string) =>
     `/api/properties/search?limit=12&q=${encodeURIComponent(q)}`,
   );
 
-export const getSources =() => request<{ sources: SourceStatus[]; engine_note: string }>("/api/sources/status");
+/** Configured means a key exists; only an explicit live check can make a provider verified or failed. */
+export interface Integration {
+  provider: "costar" | "vexcel" | "matterport" | "gemini" | "claude";
+  role: string;
+  state: "verified" | "configured" | "failed" | "unavailable";
+  detail: string;
+  checked_at: string | null;
+  check_detail: string | null;
+  model?: string;
+  record_count?: number;
+}
+
+export const getSources = () =>
+  request<{ sources: SourceStatus[]; integrations: Integration[]; engine: string; engine_note: string }>("/api/sources/status");
+export const checkIntegration = (provider: Integration["provider"]) =>
+  request<Integration>(`/api/integrations/${provider}/check`, { method: "POST" });
 export const getAudit = (id: string) => request<Audit>(`/api/audits/${id}`);
 export const createAudit = (body: unknown) =>
   request<{ audit_id: string }>("/api/audits", { method: "POST", body: JSON.stringify(body) });
 export const addMeasurement = (id: string, body: unknown) =>
   request<unknown>(`/api/audits/${id}/measurements`, { method: "POST", body: JSON.stringify(body) });
-export const saveMarkups = (id: string, pins: Pin[], reviewed_by: string) =>
-  request<unknown>(`/api/audits/${id}/markups`, { method: "POST", body: JSON.stringify({ pins, reviewed_by }) });
+export const saveMarkups = (id: string, pins: Pin[], reviewed_by: string, evidence_id?: string) =>
+  request<unknown>(`/api/audits/${id}/markups`, { method: "POST", body: JSON.stringify({ pins, reviewed_by, evidence_id }) });
+export const startAnalysis = (id: string, body: { evidence_id?: string; use_public_imagery?: boolean }) =>
+  request<{ evidence_id: string; status: string }>(`/api/audits/${id}/analysis`, { method: "POST", body: JSON.stringify(body) });
+export const reviewCandidate = (id: string, candidateId: string,
+  body: { action: "accept" | "reject" | "relabel" | "reset"; reviewer: string; category?: CandidateCategory; van?: boolean }) =>
+  request<Candidate>(`/api/audits/${id}/candidates/${candidateId}`, { method: "POST", body: JSON.stringify(body) });
+export const applyCandidates = (id: string, evidence_id: string, reviewer: string) =>
+  request<unknown>(`/api/audits/${id}/candidates/apply`, { method: "POST", body: JSON.stringify({ evidence_id, reviewer }) });
 export const chooseModel = (id: string, model_id: string) =>
   request<unknown>(`/api/audits/${id}/model`, { method: "POST", body: JSON.stringify({ model_id }) });
 export const verifyFinding = (findingId: string, body: unknown) =>

@@ -232,11 +232,13 @@ class Pin(BaseModel):
     x: float = Field(ge=0, le=1)
     y: float = Field(ge=0, le=1)
     kind: Literal["accessible", "van"]   # a van-accessible space is also an accessible space
+    candidate_id: str | None = None      # set when the mark is a Gemini candidate a person accepted
 
 
 class PinsIn(BaseModel):
     pins: list[Pin] = Field(max_length=300)
     reviewed_by: str = Field(min_length=1, max_length=80)
+    evidence_id: str | None = None       # which aerial image; defaults to the first one
 
 
 class ModelIn(BaseModel):
