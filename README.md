@@ -17,7 +17,7 @@ A commercial landlord or property manager who wants to know where accessibility 
 1. **Pick a property.** Search 541 non-residential buildings in Houston and Los Angeles that have both a CoStar record and a Matterport scan.
 2. **Gather evidence.** A LangChain Deep Agent plans the audit and delegates to three subagents. The property investigator looks up the CoStar record (use type, year built, parking counts). The exterior inspector fetches a Vexcel orthophoto of the site. The interior inspector compares the linked Matterport scans, loads one and measures its doorway openings from the floor plan. The orchestrator then checks that the scan sits where CoStar says the building is.
 3. **Screen.** A pure-Python rule engine compares structured measurements against the standards. No language model does any arithmetic.
-4. **Ask a person for what it cannot know.** You mark accessible stalls directly on the aerial image, or let Gemini suggest them and accept or reject each one. You can also enter a door width measured on site or in the 3D tour. The checks re-run immediately.
+4. **Ask a person for what it cannot know.** You mark accessible stalls directly on the aerial image, or let Gemini suggest them and accept or reject each one. For interior doors you can enter a width measured on site, draw a line with the ruler in the 3D tour and have its length saved without typing (where the Matterport SDK key is registered), or take the scan's own width after saying whether the opening has a door in it. The checks re-run immediately.
 5. **Report.** A printable action plan groups results into act on, measure next, and meets threshold, with a JSON export and a full audit trail.
 6. **Measure on site.** A one-page field checklist lists what still needs a tape measure, in a visitor's order from the lot to the door and inside, narrowest scan doorways first. Print it, or scan its QR code and enter readings on a phone; each reading re-runs the check.
 7. **Triage a portfolio.** For every CoStar building, or one owner's, a sortable list shows the Table 208.2 stall minimum for the recorded lot, year built and scan coverage, ordered by what most needs measuring. No AI calls.
@@ -32,7 +32,8 @@ Every result is labelled **measured**, **suspected** or **review needed**, with 
 | Accessible parking count | Table 208.2 by lot size; hospital outpatient 10%, rehab 20% | §208.2 |
 | Van-accessible spaces | 1 per 6 accessible spaces or fraction | §208.2.4 |
 | Door clear opening | 32 in; 36 in when the opening is deeper than 24 in | §404.2.3 |
-| Doorway opening from a scan | Floor-plan opening under 31 in: suspected below 32 in. Wider: needs measurement (never a pass) | §404.2.3 |
+| Doorway opening from a scan | Floor-plan opening under 31 in: suspected below 32 in. Wider: needs measurement, sorted into "measure first", "could go either way" and "likely wide enough". Never a pass on its own | §404.2.3 |
+| Scan width accepted by a person | A person looks at the doorway and takes the scan's width: as drawn if there is no door, less 2.25 in for a single hinged door. Screened like any width and labelled "estimated, not measured" | §404.2.3 |
 | Accessible route width | 36 in; 32 in allowed for at most 24 in (engine only, not yet in the UI) | §403.5.1 |
 
 Missing or unverified inputs return "needs field measurement". Nothing is defaulted, and a non-field measurement within half an inch of a threshold is sent back for a tape measure.
@@ -46,8 +47,11 @@ Missing or unverified inputs return "needs field measurement". Nothing is defaul
 | Matterport model identity, rooms, tour embed | Real, fetched live |
 | Accessible stall counts | Counted by a person. Gemini can suggest stalls on the aerial image, but a suggestion only counts once a person accepts it. Low-confidence guesses are dropped |
 | AI on sponsor imagery | Vexcel imagery is sent to Gemini only when the server sets `VEXCEL_ALLOW_AI_PROCESSING=1`. It is off by default and was switched on for the live site after Vexcel approved it at the event. Public USGS imagery can always be analysed |
-| Doorway openings | Real, read live from the Matterport floor plan (`floors.edges.openings`, type `doorway`) when the scan has one: 32 of 80 sampled scans did. An opening is the frame gap, so it can flag a narrow doorway but never pass one. Where the scan has a 3D mesh, the gap at each doorway is also measured from the mesh; a smaller gap means a door leaf or object was in the opening during the scan |
-| Door clear width | Entered by a person (tape on site, or the tour's measurement tool). Replaces the scan opening for that door |
+| Doorway openings | Real, read live from the Matterport floor plan (`floors.edges.openings`, type `doorway`) when the scan has one. A survey of the first scan of all 541 properties found doorways in 216 of them (2,413 doorways). An opening is the frame gap, so it can flag a narrow doorway but never pass one. Where the scan has a 3D mesh, the gap at each doorway is also measured from the mesh (`providers/scanmesh.py`); a smaller gap means a door leaf or object was in the opening during the scan. In the survey the mesh confirmed 846 openings, typically within 0.8 in of the floor plan. The mesh is too coarse to show a door leaf, so it confirms the opening, not the clear width |
+| Doorway numbers | Scan doorways are numbered in walking order (each followed by its nearest neighbour on the floor plan), and the plan shows the numbers, so the list can be matched to the building. The order is nearest-neighbour, not a planned route |
+| Door clear width | Entered by a person (tape on site, or a line drawn with the tour's ruler). Replaces the scan opening for that door |
+| Accepted scan widths | A person can take the scan's width for a doorway without measuring, after stating whether it has a door, or accept in one step the doorways the mesh shows clearly wide. These are recorded under the person's name as scan estimates, shown as "estimated, not measured" and counted apart from verified measurements. Anything within half an inch of the minimum still goes to a tape measure |
+| Click-to-measure in the tour | Works where the Matterport SDK key's domain is registered, which today is localhost. On the live site Matterport refuses the key, so the tour is a plain embed and its ruler reading is typed in |
 | Total parking | CoStar's property-wide surface count, flagged because §208.2 applies per lot |
 | Agent | **LangChain Deep Agent** (`deepagents` on LangGraph) with Claude (`claude-opus-5-5`) as the model through `langchain-anthropic`, when `ANTHROPIC_API_KEY` is set. An orchestrator writes the plan and delegates with the `task` tool to three subagents: property investigator, exterior inspector and interior inspector. The interior inspector compares linked scans, prefers one with a floor plan and public areas, and measures its doorways. The agents cannot create findings, and the summary is rejected if it uses legal words like "compliant" or "violation". Without a key, or if the Deep Agent fails mid-audit, a fixed scripted pipeline (no AI) runs the same steps |
 | AI token usage | Recorded per audit (requests, input, cached, output tokens, list-price estimate), shown on the audit page and totalled at `GET /api/usage`. A typical audit is about 8 requests, 50k input tokens (mostly cached) and 1.5k output tokens, about $0.09 on `claude-opus-5-5` |
@@ -114,7 +118,7 @@ services/api    FastAPI
   app/pipeline    runner.py (shared steps, scripted fallback, event log), evaluate.py (measurements -> findings)
   app/routes      audits, events (SSE), measurements, image marks, review, export, featured + copy, portfolio
   app/portfolio.py  portfolio triage: Table 208.2 minimums and the measuring order, no provider calls
-  tests           152 tests: every threshold boundary, missing-data behaviour, API contracts, the Deep Agent graph with a scripted model, doorway screening, token accounting, featured copies, portfolio triage
+  tests           153 tests: every threshold boundary, missing-data behaviour, API contracts, the Deep Agent graph with a scripted model, doorway screening and triage, the mesh gap measurement, walking-order numbering, accepted scan widths, token accounting, featured copies, portfolio triage
 deploy          Caddyfile, systemd units, update.sh
 docs/HANDOFF.md Full product and engineering brief
 ```
@@ -160,14 +164,38 @@ Automated tools catch only part of WCAG, and no screen-reader user has tested th
 - City-specific permit guidance for each fix
 - Vexcel oblique views and object detection
 - Owner names in the portfolio view, from a source that has them
+- Turn the 3D tour to face the doorway selected in the list
+- Tell from the scan photos whether an opening has a door in it, so fewer doorways need a person to look
 
-## Built with
+## What we built and what we used
 
-- **Backend:** Python 3.12, FastAPI, Uvicorn, Pydantic, httpx, Pillow, NumPy, SQLite, pytest, uv
-- **AI:** LangChain `deepagents` on LangGraph, `langchain-anthropic` with Claude Opus 5.5, Google Gemini (`google-genai`)
-- **Frontend:** Next.js 16, React 19, TypeScript, Tailwind CSS 4, Motion, Three.js with React Three Fiber, Barlow fonts (Fontsource)
-- **Data:** CoStar hackathon extract, Vexcel imagery API, Matterport Model API and Showcase SDK, USGS NAIP imagery
-- **Hosting:** Vultr, Caddy, Let's Encrypt
+The repository's history starts on 14 Nov 2026, during HackPrinceton Fall 2026.
+
+### Our work
+
+- **Rule engine** (`services/api/app/rules/ada2010.py`): the 2010 ADA numeric checks, the scan-doorway screening and triage bands, the borderline and provenance rules, and the tests for every threshold.
+- **Provider adapters** (`app/providers/`): the CoStar extract loader and crosswalk, the Vexcel client with its geofence check, the Matterport Model API queries, the USGS fallback and the synthetic fixture.
+- **Scan mesh measurement** (`app/providers/scanmesh.py`): our own geometry code. It clips the scan's triangles to a box at each doorway and finds the widest free gap. Pure Python, no geometry library.
+- **Pipeline and audit trail** (`app/pipeline/`): the shared steps, the event log, the scripted fallback and the mapping from measurements to findings.
+- **Agent design** (`app/agents/`): the prompts, tools, subagent roles and guardrails. The agent framework itself is LangChain's (see below).
+- **Human-in-the-loop flows**: stall marking and AI suggestions that only count once accepted, door measurements, accepted scan widths, review and sign-off.
+- **Web app** (`apps/web/`): every page and component, including the landing scene, the inspection workspace, the trip replay, the action plan, the field checklist and the portfolio view.
+- **Deploy configs** (`deploy/`).
+
+### Not our work
+
+- **Frameworks and libraries** we call but did not write:
+  - Backend: [FastAPI](https://fastapi.tiangolo.com/), [Uvicorn](https://www.uvicorn.org/), [Pydantic](https://docs.pydantic.dev/), [httpx](https://www.python-httpx.org/), [Pillow](https://python-pillow.org/), SQLite, [pytest](https://pytest.org/), [uv](https://docs.astral.sh/uv/)
+  - AI: LangChain [`deepagents`](https://github.com/langchain-ai/deepagents) on [LangGraph](https://www.langchain.com/langgraph), `langchain-anthropic`, `langchain-google-genai`, the Anthropic SDK with Claude Opus 5.5, Google Gemini through `google-genai`
+  - Frontend: [Next.js 16](https://nextjs.org/), [React 19](https://react.dev/), TypeScript, [Tailwind CSS 4](https://tailwindcss.com/), [Motion](https://motion.dev/), [Three.js](https://threejs.org/) with [React Three Fiber](https://r3f.docs.pmnd.rs/), [uqr](https://github.com/unjs/uqr) for QR codes, Barlow fonts via [Fontsource](https://fontsource.org/)
+  - Checked with: axe-core and Lighthouse
+- **Data and services**: the CoStar hackathon extract, the Vexcel imagery API, the Matterport Model API, Showcase embed and SDK (including the tour's own ruler), and USGS NAIP imagery.
+- **The standard**: the thresholds are from the 2010 ADA Standards. We implemented them; we did not write them.
+- **Hosting**: Vultr, Caddy, Let's Encrypt.
+
+### AI assistance
+
+We used AI coding assistants to write code during the event, working from our direction. Commits made through Claude Code carry a `Co-Authored-By: Claude` trailer in the git history. The product decisions were ours: which checks to implement, that a scan can never pass a door by itself, that every result carries its source and method, and that AI suggestions count only once a person accepts them.
 
 ## Sources
 
