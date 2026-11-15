@@ -1,8 +1,9 @@
 "use client";
 
+import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { ErrorNote } from "@/components/ui";
-import { chooseModel, evidenceUrl, saveMarkups, type Evidence, type Finding, type Pin } from "@/lib/api";
+import { chooseModel, evidenceUrl, saveMarkups, suggestMarkups, type Evidence, type Finding, type Pin, type StallSuggestion } from "@/lib/api";
 
 function Provenance({ ev }: { ev: Evidence }) {
   const scale = ev.scale as { native_resolution?: number; units?: string; note?: string } | null;
@@ -66,6 +67,10 @@ function AerialMarkup({ ev, auditId, onChanged, marking, setMarking }: {
   const [who, setWho] = useState(ev.geometry?.pins_by ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // AI suggestions are proposals only. They sit apart from the marks until the person accepts each one.
+  const [ideas, setIdeas] = useState<StallSuggestion[] | null>(null);
+  const [ideaNote, setIdeaNote] = useState<string | null>(null);
+  const [looking, setLooking] = useState(false);
   const shown = marking ? pins : saved ?? [];
   const vans = shown.filter((p) => p.kind === "van").length;
 
@@ -74,6 +79,26 @@ function AerialMarkup({ ev, auditId, onChanged, marking, setMarking }: {
     const box = e.currentTarget.getBoundingClientRect();
     setPins([...pins, { x: (e.clientX - box.left) / box.width, y: (e.clientY - box.top) / box.height, kind }]);
   }
+
+  async function suggest() {
+    setLooking(true);
+    setError(null);
+    try {
+      const res = await suggestMarkups(auditId);
+      // Skip anything sitting on a mark the person already placed (within about one stall).
+      setIdeas(res.suggestions.filter((s) => !pins.some((p) => Math.hypot(p.x - s.x, p.y - s.y) < 0.012)));
+      setIdeaNote(res.notes);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLooking(false);
+    }
+  }
+
+  const accept = (list: StallSuggestion[]) => {
+    setPins([...pins, ...list.map((s) => ({ x: s.x, y: s.y, kind: s.kind, suggested: true }))]);
+    setIdeas((ideas ?? []).filter((s) => !list.includes(s)));
+  };
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -106,6 +131,25 @@ function AerialMarkup({ ev, auditId, onChanged, marking, setMarking }: {
             {p.kind === "van" ? "V" : "A"}
           </button>
         ))}
+        <AnimatePresence>
+          {marking && (ideas ?? []).map((s, i) => (
+            <motion.button key={`${s.x}-${s.y}`} type="button" title={s.cue}
+              onClick={(e) => { e.stopPropagation(); accept([s]); }}
+              style={{ left: `${s.x * 100}%`, top: `${s.y * 100}%` }}
+              initial={{ opacity: 0, scale: 2.2, x: "-50%", y: "-50%" }}
+              animate={{ opacity: 1, scale: 1, x: "-50%", y: "-50%" }}
+              exit={{ opacity: 0, scale: 0.6, x: "-50%", y: "-50%" }}
+              transition={{ type: "spring", stiffness: 380, damping: 24, delay: i * 0.12 }}
+              aria-label={`Suggestion ${i + 1}: possible ${s.kind === "van" ? "van-accessible" : "accessible"} stall. The model saw: ${s.cue}. Activate to accept.`}
+              className="absolute flex size-8 items-center justify-center rounded-full border-2 border-dashed border-white bg-ink/55 text-sm font-bold text-white shadow">
+              ?
+            </motion.button>
+          ))}
+        </AnimatePresence>
+        {looking && (
+          <motion.div aria-hidden="true" className="pointer-events-none absolute inset-x-0 h-16 bg-gradient-to-b from-transparent via-white/35 to-transparent"
+            initial={{ top: "-10%" }} animate={{ top: "100%" }} transition={{ duration: 1.8, repeat: Infinity, ease: "linear" }} />
+        )}
       </div>
 
       {!marking && (
@@ -115,7 +159,7 @@ function AerialMarkup({ ev, auditId, onChanged, marking, setMarking }: {
               ? `${saved.length} accessible stall(s) marked by ${ev.geometry?.pins_by}, ${vans} of them van-accessible.`
               : "No one has marked accessible stalls on this image yet."}
           </p>
-          <button className="btn btn-sm no-print" onClick={() => { setPins(saved ?? []); setMarking(true); }}>
+          <button className="btn btn-sm no-print" onClick={() => { setPins(saved ?? []); setIdeas(null); setMarking(true); }}>
             {saved ? "Edit marks" : "Mark accessible stalls"}
           </button>
         </div>
@@ -125,8 +169,28 @@ function AerialMarkup({ ev, auditId, onChanged, marking, setMarking }: {
         <form onSubmit={save} className="no-print mt-3 space-y-3 border-l-4 border-sign bg-sign-wash p-4 text-[0.95rem]">
           <p>
             Click each stall painted with the wheelchair symbol or a striped access aisle. Click a mark to remove it.
-            What you mark is recorded as counted by you, not detected by software.
+            What you mark is recorded as counted by you. AI suggestions count only once you accept them.
           </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <button className="btn btn-sm" type="button" onClick={suggest} disabled={looking}>
+              {looking ? "Looking at the image…" : ideas ? "Suggest again" : "Suggest stalls with AI"}
+            </button>
+            {ideas && ideas.length > 0 && (
+              <>
+                <button className="btn btn-sm" type="button" onClick={() => accept(ideas)}>Accept all {ideas.length}</button>
+                <button className="btn btn-sm" type="button" onClick={() => setIdeas([])}>Dismiss</button>
+              </>
+            )}
+          </div>
+          {ideas && (
+            <p aria-live="polite">
+              {ideas.length > 0
+                ? `${ideas.length} possible stall(s) shown as dashed “?” marks. Click each one you agree with. `
+                : "No suggestions left to review. "}
+              The model can miss stalls and guess wrong, so check the whole lot yourself.
+              {ideaNote && ` It noted: ${ideaNote}`}
+            </p>
+          )}
           <fieldset className="flex flex-wrap gap-4">
             <legend className="font-medium">Next mark is a</legend>
             <label className="flex items-center gap-2">

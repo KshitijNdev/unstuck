@@ -232,6 +232,7 @@ class Pin(BaseModel):
     x: float = Field(ge=0, le=1)
     y: float = Field(ge=0, le=1)
     kind: Literal["accessible", "van"]   # a van-accessible space is also an accessible space
+    suggested: bool = False              # True when the mark began as an AI suggestion the person accepted
 
 
 class PinsIn(BaseModel):

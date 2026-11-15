@@ -198,9 +198,12 @@ def save_markups(audit_id: str, body: PinsIn):
             method="manual", evidence_id=ev.id, reviewed_by=body.reviewed_by,
             notes=f"Counted by a person from marks on the {ev.provider} image."))
     try:
+        from_ai = sum(1 for p in body.pins if p.suggested)
         runner.emit(audit, "OBSERVATION_PROPOSED", "human_reviewer",
                     f"{body.reviewed_by} marked {counts['parking_accessible_spaces']} accessible stall(s), "
-                    f"{counts['parking_van_spaces']} of them van-accessible, on the {ev.provider} image.", payload=counts)
+                    f"{counts['parking_van_spaces']} of them van-accessible, on the {ev.provider} image"
+                    + (f"; {from_ai} began as AI suggestions that {body.reviewed_by} accepted." if from_ai else "."),
+                    payload=counts)
         runner.reevaluate(audit)
     except ValueError as e:
         audit = _audit(audit_id)
@@ -209,6 +212,39 @@ def save_markups(audit_id: str, body: PinsIn):
         store.save(audit)
         raise HTTPException(400, f"Marks rejected: {e}")
     return {"evidence": ev, "findings": audit.findings}
+
+
+@router.post("/audits/{audit_id}/markups/suggest")
+async def suggest_markups(audit_id: str):
+    """Ask the vision model where accessible stalls might be on the aerial image. Returns suggestions only:
+    nothing is saved as a mark or a count until a person accepts them and saves through /markups."""
+    from ..agents import orchestrator, stalls  # local import: the agent is optional
+
+    audit = _audit(audit_id)
+    if audit.status != "COMPLETE":
+        raise HTTPException(409, "Wait for the audit to finish before asking for suggestions.")
+    ev = next((e for e in audit.evidence if e.asset_type == "aerial_image"), None)
+    if ev is None or ev.provider != "Vexcel" or audit.property is None:
+        raise HTTPException(404, "This audit has no aerial image to look at.")
+    if not orchestrator.available():
+        raise HTTPException(503, "No AI model is configured, so suggestions are unavailable. Mark the stalls by hand.")
+    try:
+        async with httpx.AsyncClient() as client:
+            image = await vexcel.fetch_image(client, audit.property.lat, audit.property.lon)
+    except Exception as e:
+        raise HTTPException(502, f"Imagery provider unavailable ({type(e).__name__})")
+    try:
+        found, notes, resp = await stalls.suggest(image)
+    except Exception as e:
+        runner.emit(audit, "FETCH_FAILURE", "vision_model", f"Stall suggestions failed ({type(e).__name__}).",
+                    tool="suggest_stalls", error_class=type(e).__name__)
+        raise HTTPException(502, f"The AI model could not read the image ({type(e).__name__}). Mark the stalls by hand.")
+    audit = _audit(audit_id)  # re-read: the request above takes several seconds
+    orchestrator.record_usage(audit, resp)
+    runner.emit(audit, "AGENT_NOTE", "vision_model",
+                f"Suggested {len(found)} possible accessible stall(s) on the {ev.provider} image. "
+                "Suggestions are not counted until a person accepts them.", tool="suggest_stalls", payload=found)
+    return {"suggestions": found, "notes": notes, "model": getattr(resp, "model", None)}
 
 
 @router.post("/audits/{audit_id}/model")

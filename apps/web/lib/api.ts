@@ -19,7 +19,8 @@ export interface SourceStatus {
 
 export interface Region { id: string; label: string; x: number; y: number; w: number; h: number; kind: string }
 
-export interface Pin { x: number; y: number; kind: "accessible" | "van" }
+export interface Pin { x: number; y: number; kind: "accessible" | "van"; suggested?: boolean }
+export interface StallSuggestion { x: number; y: number; kind: "accessible" | "van"; cue: string; confidence: "high" | "medium" }
 
 export interface Evidence {
   id: string;
@@ -166,6 +167,8 @@ export const addMeasurement = (id: string, body: unknown) =>
   request<unknown>(`/api/audits/${id}/measurements`, { method: "POST", body: JSON.stringify(body) });
 export const saveMarkups = (id: string, pins: Pin[], reviewed_by: string) =>
   request<unknown>(`/api/audits/${id}/markups`, { method: "POST", body: JSON.stringify({ pins, reviewed_by }) });
+export const suggestMarkups = (id: string) =>
+  request<{ suggestions: StallSuggestion[]; notes: string | null }>(`/api/audits/${id}/markups/suggest`, { method: "POST" });
 export const chooseModel = (id: string, model_id: string) =>
   request<unknown>(`/api/audits/${id}/model`, { method: "POST", body: JSON.stringify({ model_id }) });
 export const verifyFinding = (findingId: string, body: unknown) =>
