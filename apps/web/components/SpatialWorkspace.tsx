@@ -6,7 +6,7 @@ import { FindingCard } from "@/components/FindingCard";
 import { aerialSources, layerOf, SpatialStage, type Layer } from "@/components/SpatialStage";
 import { SuggestionsPanel } from "@/components/SuggestionsPanel";
 import { rovingKeys, StatusBadge } from "@/components/ui";
-import { startAnalysis, TRIAGE, type Audit, type Finding } from "@/lib/api";
+import { getSources, startAnalysis, TRIAGE, type Audit, type Finding } from "@/lib/api";
 import { RouteReplay } from "@/components/RouteReplay";
 
 type Filter = "all" | "below" | "review" | "meets" | "doors";
@@ -39,6 +39,10 @@ export function SpatialWorkspace({ audit, auditId, selected, onSelect, onChanged
   onChanged: () => Promise<void>; log: React.ReactNode;
 }) {
   const [layer, setLayer] = useState<Layer>("aerial");
+  const [vexcelAiAllowed, setVexcelAiAllowed] = useState(false);
+  useEffect(() => {
+    getSources().then((s) => setVexcelAiAllowed(!!s.vexcel_ai_allowed)).catch(() => {});
+  }, []);
   const [filter, setFilter] = useState<Filter>("all");
   const [tab, setTab] = useState<Tab>("checks");
   const [aerialId, setAerialId] = useState<string | null>(null);
@@ -101,7 +105,8 @@ export function SpatialWorkspace({ audit, auditId, selected, onSelect, onChanged
   }
 
   const canAnalyze = site?.asset_type === "aerial_image" && !site.is_synthetic;
-  const blocked = site?.provider === "Vexcel";  // the server enforces this too; asking first avoids a pointless refusal
+  // Vexcel confirmed AI processing is fine when the operator sets VEXCEL_ALLOW_AI_PROCESSING=1; the server enforces it either way.
+  const blocked = site?.provider === "Vexcel" && !vexcelAiAllowed;
   const progress = run?.status === "running" ? run.progress : null;
   const analyzeControl = (
     <div className="st-analyze">
@@ -124,7 +129,7 @@ export function SpatialWorkspace({ audit, auditId, selected, onSelect, onChanged
       )}
       {askPublic && (
         <div className="st-pop" role="dialog" aria-label="Vexcel imagery can’t be analyzed">
-          <p>Vexcel’s hackathon terms don’t say its imagery may be sent to a third-party AI service, so Unstuck won’t send it.</p>
+          <p>Vexcel imagery isn’t cleared for third-party AI analysis on this server, so Unstuck won’t send it.</p>
           <p>Analyze the public USGS image of the same site instead? Suggestions stay attached to that image.</p>
           <div>
             <button type="button" className="btn btn-primary btn-sm" onClick={() => analyze(true)}>Analyze public image</button>
@@ -215,7 +220,7 @@ export function SpatialWorkspace({ audit, auditId, selected, onSelect, onChanged
             focusId={focusId} onFocus={focusCandidate} onChanged={onChanged} error={aiError}
             analyze={canAnalyze && !running ? (blocked ? (
               <>
-                <p>This is Vexcel imagery, which Unstuck won’t send to a third-party AI service. The public USGS image of the same site can be analyzed instead.</p>
+                <p>This Vexcel imagery isn’t cleared for third-party AI analysis on this server. The public USGS image of the same site can be analyzed instead.</p>
                 <button type="button" className="btn btn-primary btn-sm" onClick={() => analyze(true)}>Analyze public image</button>
               </>
             ) : <button type="button" className="btn btn-primary btn-sm" onClick={() => analyze(false)}>Analyze imagery</button>) : null} />

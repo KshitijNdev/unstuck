@@ -241,7 +241,7 @@ export interface Integration {
 }
 
 export const getSources = () =>
-  request<{ sources: SourceStatus[]; integrations: Integration[]; engine: string; model?: string; engine_note: string }>("/api/sources/status");
+  request<{ sources: SourceStatus[]; integrations: Integration[]; engine: string; model?: string; engine_note: string; vexcel_ai_allowed?: boolean }>("/api/sources/status");
 export const checkIntegration = (provider: Integration["provider"]) =>
   request<Integration>(`/api/integrations/${provider}/check`, { method: "POST" });
 export const getAudit = (id: string) => request<Audit>(`/api/audits/${id}`);

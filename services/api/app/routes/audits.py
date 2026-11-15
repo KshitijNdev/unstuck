@@ -44,13 +44,15 @@ def get_usage():
 def get_sources_status():
     from ..agents import orchestrator
     rows = integrations.integrations()  # cheap: reads config and the last explicit check, never calls a provider
+    vexcel_ai = os.environ.get("VEXCEL_ALLOW_AI_PROCESSING") == "1"
     if orchestrator.available():
-        return {"sources": sources_status(), "integrations": rows,
+        return {"sources": sources_status(), "integrations": rows, "vexcel_ai_allowed": vexcel_ai,
                 "engine": "deep_agent", "model": orchestrator.model_name(),
                 "engine_note": f"A LangChain Deep Agent ({orchestrator.model_name()}) plans each audit and delegates "
                                "to property, exterior, and interior specialists, including scan-doorway screening. "
                                "Every ADA result is calculated by the tested rule engine, not the model."}
-    return {"sources": sources_status(), "integrations": rows, "engine": "scripted_pipeline",
+    return {"sources": sources_status(), "integrations": rows, "vexcel_ai_allowed": vexcel_ai,
+            "engine": "scripted_pipeline",
             "engine_note": "Fixed scripted pipeline (no model key configured). Same checks, fixed order."}
 
 
