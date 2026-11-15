@@ -80,6 +80,18 @@ export function ReportClient({ id }: { id: string }) {
       })}
 
       <section>
+        <h2 className="font-display text-[1.9rem] font-bold leading-none">Getting it fixed</h2>
+        <p className="mt-2 text-muted">
+          This report is the first step. A typical path from here, which varies by city and by the size of the job:
+        </p>
+        <ol className="mt-3 list-decimal space-y-1 pl-5 text-[0.95rem]">
+          <li><strong>Measure.</strong> Tape-measure doors, routes and stall counts on site. For slopes or grade, hire a licensed surveyor: they know what grade the site is at and what it needs to be.</li>
+          <li><strong>Permit.</strong> Most fixes need a building permit. A grading permit applies only if earth is moved. Every city defines these permits differently, so check with your local building department.</li>
+          <li><strong>Contractor.</strong> For a small fix, one trade (for example striping, doors or concrete) is usually enough. A general contractor coordinates jobs with several phases, such as grading plus concrete plus electrical.</li>
+        </ol>
+      </section>
+
+      <section>
         <h2 className="font-display text-[1.9rem] font-bold leading-none">Cost and tax</h2>
         <p className="mt-2 text-muted">
           No cost estimates are shown: there are no sourced price assumptions for this property yet. Federal programs

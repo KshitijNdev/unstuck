@@ -197,7 +197,7 @@ def check_parking_facility(
             {"value": acc, "unit": "spaces", "method": method},
             f"{acc} accessible space(s) observed; the table minimum for {total} spaces is {need}.",
             "No action from this check." if ok else
-            "Confirm the count on site, then plan restriping/signage for the missing space(s) with a qualified professional.",
+            "Confirm the count on site, then get a quote from a striping and signage contractor for the missing space(s). Check with the city whether the work needs a permit; rules vary by city.",
             assumptions=assumptions,
         ))
     if van is None:
@@ -213,7 +213,7 @@ def check_parking_facility(
             {"value": van, "unit": "van spaces", "method": method},
             f"{van} van space(s) observed; {need_van} needed for {need} required accessible space(s).",
             "No action from this check." if ok else
-            "Confirm on site, then plan a van-accessible space (width/aisle per §502) with a qualified professional.",
+            "Confirm on site, then get a quote from a striping and signage contractor for a van-accessible space (width and aisle per §502). Check with the city whether the work needs a permit; rules vary by city.",
             assumptions=assumptions,
         ))
     return results
@@ -279,7 +279,7 @@ def check_door(
         PASS if ok else FAIL, required, observed,
         f"{width:g} in clear width against a {minimum} in minimum ({cond}).",
         "No action from this check." if ok else
-        "Re-measure to confirm, then review options (offset hinges, wider door/frame) with a qualified professional.",
+        "Tape-measure on site to confirm, then review options (offset hinges, wider door or frame) with a door contractor. Widening an opening usually needs a building permit; rules vary by city.",
         borderline=borderline,
     )
 
@@ -318,11 +318,11 @@ def check_route_width(
         return result(PASS, observed, f"{width:g} in meets the 36 in minimum.", "No action from this check.")
     if width < 32:
         return result(FAIL, observed, f"{width:g} in is below 32 in, the smallest width allowed anywhere on the route.",
-                      "Confirm on site, then review how to widen or reroute with a qualified professional.")
+                      "Confirm on site, then review how to widen or reroute with a contractor. If the route crosses sloped ground, have a licensed surveyor measure the grade first. Fixes usually need a building permit; rules vary by city.")
     if length is None:
         return result(FIELD, observed, f"{width:g} in is allowed only for a stretch of 24 in or less, and the length of the narrow stretch is unknown.",
                       "Measure how long the route stays narrower than 36 in.")
     ok = length <= 24
     return result(PASS if ok else FAIL, observed,
                   f"{width:g} in for a length of {length:g} in (reduced width is allowed for 24 in max).",
-                  "No action from this check." if ok else "Confirm on site, then review how to widen the narrow stretch with a qualified professional.")
+                  "No action from this check." if ok else "Confirm on site, then review how to widen the narrow stretch with a contractor. Fixes usually need a building permit; rules vary by city.")
