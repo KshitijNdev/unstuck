@@ -1,13 +1,10 @@
 [Unit]
-Description=Unstuck Next.js
-After=network.target unstuck-api.service
-
+Description=Unstuck web
+After=network.target
 [Service]
-User=team
-WorkingDirectory=/home/team/unstuck/apps/web
-Environment=NODE_ENV=production PORT=3000 HOSTNAME=127.0.0.1
-ExecStart=/usr/bin/npm run start
+WorkingDirectory=/opt/unstuck/apps/web
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/npm run start -- --hostname 127.0.0.1 --port 3000
 Restart=always
-
 [Install]
 WantedBy=multi-user.target
