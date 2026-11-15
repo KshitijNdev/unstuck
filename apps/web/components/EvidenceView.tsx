@@ -234,7 +234,10 @@ export function EvidenceView({ evidence, selected, auditId, onChanged }: {
   const record = evidence.find((e) => e.asset_type === "record");
   const linked = ((record?.geometry?.summary as { model_ids?: string[] } | undefined)?.model_ids) ?? [];
   const summary = tour?.geometry?.summary as
-    { model_id?: string; name?: string; address?: string; panos?: number; classifications?: string[] } | undefined;
+    { model_id?: string; name?: string; address?: string; panos?: number; classifications?: string[];
+      has_floor_plan?: boolean; doorways?: { width_in: number | null }[] } | undefined;
+  const doorways = summary?.doorways ?? [];
+  const widths = doorways.map((d) => d.width_in).filter((w): w is number => w != null);
 
   async function pick(modelId: string) {
     setSwitching(true);
@@ -288,9 +291,20 @@ export function EvidenceView({ evidence, selected, auditId, onChanged }: {
                 </select>
               </label>
             )}
-            <p className="mt-3 text-[0.95rem] text-muted">
-              To measure a door: open the tour&apos;s measurement tool, measure the clear opening, then record it on the door
-              check as “Measured by hand in the 3D tour”.
+            <p className="mt-3 text-[0.95rem]">
+              {doorways.length > 0
+                ? <>The interior inspector measured <strong>{doorways.length} doorway opening{doorways.length === 1 ? "" : "s"}</strong> in
+                    this scan&apos;s floor plan{widths.length ? `, ${Math.min(...widths)} to ${Math.max(...widths)} in wide` : ""}. These
+                    are frame openings: clear width with the door open is narrower, so a scan can flag a narrow doorway but
+                    never pass one.</>
+                : summary?.has_floor_plan
+                  ? "This scan's floor plan has no doorways, so no door could be measured from it."
+                  : "This scan has no floor plan, so no doorway could be measured from it."}
+              {linked.length > 1 && doorways.length === 0 ? " Another linked scan may have one: switch scans above." : ""}
+            </p>
+            <p className="mt-2 text-[0.95rem] text-muted">
+              To confirm a door: open the tour&apos;s measurement tool, measure the clear opening with the door open 90°, then
+              record it on that door&apos;s check as “Measured by hand in the 3D tour”.
             </p>
             <Provenance ev={tour} />
           </>

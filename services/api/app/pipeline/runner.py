@@ -67,7 +67,7 @@ async def _fetch(audit: Audit, actor: str, tool: str, what: str, call):
     return None
 
 
-async def run_audit(audit_id: str, matterport_model_id: str | None = None) -> None:
+async def run_audit(audit_id: str, matterport_model_id: str | None = None, user_selected: bool = True) -> None:
     audit = store.get(audit_id)
     if audit is None:
         return
@@ -76,13 +76,13 @@ async def run_audit(audit_id: str, matterport_model_id: str | None = None) -> No
         from ..agents import orchestrator  # local import: the agent is optional
         if orchestrator.available():
             try:
-                audit.engine = "claude_agent"
-                await orchestrator.run(audit, matterport_model_id)
+                audit.engine = "deep_agent"
+                await orchestrator.run(audit, matterport_model_id if user_selected else None)
             except Exception as e:  # model or tool trouble: finish the audit with the fixed script
                 for u in audit.usage:  # tokens already spent still count
                     emit(audit, "AGENT_NOTE", "orchestrator", orchestrator.usage_line(u))
                 emit(audit, "FETCH_FAILURE", "orchestrator",
-                     f"AI agent stopped ({type(e).__name__}); finishing with the scripted pipeline.", error_class=type(e).__name__)
+                     f"Deep Agent stopped ({type(e).__name__}: {str(e)[:160]}); finishing with the scripted pipeline (no AI model).", error_class=type(e).__name__)
                 _reset_for_script(audit)
                 await _run(audit, matterport_model_id)
         else:
@@ -98,6 +98,8 @@ async def run_audit(audit_id: str, matterport_model_id: str | None = None) -> No
 def _reset_for_script(audit: Audit) -> None:
     audit.engine = "scripted_pipeline"
     audit.plan, audit.evidence, audit.measurements, audit.observations, audit.findings = [], [], [], [], []
+    if audit.property is not None:  # doorways the agent read from a scan go too; the script re-reads them
+        audit.property.doors = [d for d in audit.property.doors if d.source != "matterport_floorplan"]
     audit.narrative = None
 
 
@@ -105,7 +107,7 @@ SCRIPT_PLAN = [
     "Check which data sources are available for this property",
     "Property investigator: look up the property record",
     "Exterior inspector: fetch aerial imagery of the site",
-    "Interior inspector: load the 3D model if one is authorized",
+    "Interior inspector: load the 3D model if one is authorized and measure its doorway openings",
     "Cross-check that every source describes the same property",
     "Run deterministic ADA 2010 numeric screens on structured measurements",
     "Queue anything unmeasured for human review",
@@ -210,12 +212,66 @@ async def step_interior(audit: Audit, client: httpx.AsyncClient, model_id: str |
                            lambda: matterport.fetch_model(client, prop.id, model_id))
         if got:
             audit.evidence = [e for e in audit.evidence if e.asset_type != "tour"] + [got[0]]
-            return {"loaded": True, "summary": got[1],
-                    "note": "The model API exposes rooms and walls, not door openings; door widths need a person."}
+            summary = {k: v for k, v in got[1].items() if k not in ("doorways", "rooms")}
+            summary["doorways_in_floor_plan"] = len(got[1]["doorways"])
+            summary["rooms"] = len(got[1]["rooms"])
+            return {"loaded": True, "summary": summary,
+                    "note": ("Doorway openings are in this scan's floor plan; measure them next."
+                             if got[1]["doorways"] else
+                             "This scan has no doorways in its floor plan, so no door can be measured from it.")}
         return {"loaded": False, "reason": "fetch failed"}
     emit(audit, "SOURCE_MISSING", "interior_inspector",
          "No authorized Matterport model for this property. Door widths need a field measurement.", source_id="Matterport")
     return {"loaded": False, "reason": "no authorized model"}
+
+
+def step_doorways(audit: Audit, actor: str = "interior_inspector") -> dict:
+    """Record every doorway opening in the loaded scan's floor plan as a measurement on its own door.
+
+    Widths come straight from Matterport (metres converted to inches in providers/matterport.py).
+    They are frame openings, so the rule engine can only use them to suspect a narrow door.
+    """
+    prop = audit.property
+    assert prop is not None
+    tour = next((e for e in audit.evidence if e.asset_type == "tour"), None)
+    # Forget doorways from any previously loaded scan.
+    old = {d.id for d in prop.doors if d.source == "matterport_floorplan"}
+    prop.doors = [d for d in prop.doors if d.id not in old]
+    audit.measurements = [m for m in audit.measurements if not (m.location_id in old and m.method == "scan_floorplan")]
+    if tour is None:
+        emit(audit, "SOURCE_MISSING", actor, "No 3D scan is loaded, so no doorway can be measured.", source_id="Matterport")
+        return {"measured": 0, "reason": "no scan loaded"}
+    summ = (tour.geometry or {}).get("summary") or {}
+    found = summ.get("doorways") or []
+    model_id = tour.provider_asset_id
+    if not found:
+        emit(audit, "SOURCE_MISSING", actor,
+             f"Scan {model_id} has no doorways in its floor plan, so no door can be measured from it. "
+             "Doors need a measurement in the 3D tour or on site.", source_id=f"Matterport:{model_id}")
+        return {"measured": 0, "reason": "this scan's floor plan has no doorways" if summ.get("has_floor_plan")
+                else "this scan has no floor plan"}
+    for i, d in enumerate(found, 1):
+        did = "scan_door_" + "".join(ch for ch in f"{model_id}_{d['opening_id']}" if ch.isalnum() or ch == "_")[:60]
+        prop.doors.append(Door(id=did, label=f"Scan doorway {i}, {d['floor']} ({d['kind']})", priority=2,
+                               source="matterport_floorplan", model_id=model_id))
+        note = f"Matterport floor-plan opening {d['opening_id']} in scan {model_id}. Frame gap, not clear width."
+        if d["width_in"] is not None:
+            audit.measurements.append(Measurement(
+                id=f"m_{did}_w", audit_id=audit.id, location_id=did, name="door_opening_width_in", value=d["width_in"],
+                unit="in", method="scan_floorplan", evidence_id=tour.id, notes=note))
+        if d["wall_thickness_in"] is not None:
+            audit.measurements.append(Measurement(
+                id=f"m_{did}_t", audit_id=audit.id, location_id=did, name="door_wall_thickness_in",
+                value=d["wall_thickness_in"], unit="in", method="scan_floorplan", evidence_id=tour.id, notes=note))
+    widths = [d["width_in"] for d in found if d["width_in"] is not None]
+    emit(audit, "FETCH_SUCCESS", actor,
+         f"Measured {len(found)} doorway opening(s) in scan {model_id}'s floor plan"
+         + (f", {min(widths):g} to {max(widths):g} in wide." if widths else ".")
+         + " These are frame openings; clear width is narrower.",
+         tool="matterport.floor_plan", source_id=f"Matterport:{model_id}", payload=found)
+    return {"measured": len(found), "doorways": [{"label": f"Scan doorway {i}", "floor": d["floor"], "kind": d["kind"],
+            "opening_width_in": d["width_in"]} for i, d in enumerate(found, 1)][:40],
+            "note": "Widths are frame openings from the floor plan. run_ada_checks decides what they mean."}
 
 
 def step_identity(audit: Audit) -> dict:
@@ -269,6 +325,7 @@ async def _run(audit: Audit, matterport_model_id: str | None) -> None:
             await step_aerial(audit, client)
             await _step(audit)
             await step_interior(audit, client, matterport_model_id)
+            step_doorways(audit)
             await _step(audit)
     step_identity(audit)
     await _step(audit)
@@ -280,11 +337,21 @@ async def _run(audit: Audit, matterport_model_id: str | None) -> None:
 def reevaluate(audit: Audit, announce: bool = False) -> None:
     """Re-run the rule engine and log each result."""
     audit.findings = evaluate(audit)
+    waiting = []  # scan doorways that only need measuring: one log line for all of them
     for f in audit.findings:
-        if f.status == "SUSPECTED_VISUAL_BARRIER":
+        if f.status == "SUSPECTED_VISUAL_BARRIER" and not f.location_id.startswith("scan_door_"):
+            continue
+        if (f.location_id.startswith("scan_door_") and f.confidence in ("SCAN_FLOORPLAN", "NO_MEASUREMENT")
+                and f.status in ("FIELD_VERIFICATION_REQUIRED", "INSUFFICIENT_DATA")):
+            waiting.append(f)
             continue
         emit(audit, "RULE_EVALUATED", "rules_evaluator", f"{f.title} at {f.location}: {f.status}.",
              tool="ada2010", payload={"required": f.required, "observed": f.observed, "status": f.status})
+    if waiting:
+        emit(audit, "RULE_EVALUATED", "rules_evaluator",
+             f"Door clear opening width at {len(waiting)} other scan doorway(s): needs measurement "
+             "(a floor-plan opening cannot pass a door).", tool="ada2010",
+             payload=[{"location": f.location, "status": f.status, "observed": f.observed} for f in waiting])
     if announce:
         pending = [f for f in audit.findings if f.label != "measured"]
         if pending:

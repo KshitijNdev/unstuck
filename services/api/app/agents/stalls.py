@@ -13,8 +13,6 @@ import base64
 import json
 from typing import Any
 
-import anthropic
-
 from . import orchestrator
 
 MAX_SUGGESTIONS = 40
@@ -58,14 +56,13 @@ def parse(text: str) -> tuple[list[dict[str, Any]], str | None]:
 
 
 async def suggest(image: bytes) -> tuple[list[dict[str, Any]], str | None, Any]:
-    """One vision request. Returns (suggestions, model's note on image quality, raw response for usage tracking)."""
-    client = anthropic.AsyncAnthropic(max_retries=2, timeout=90)
-    resp = await client.messages.create(
-        model=orchestrator.model_name(), max_tokens=4000,
-        messages=[{"role": "user", "content": [
-            {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
-                                         "data": base64.b64encode(image).decode()}},
-            {"type": "text", "text": PROMPT}]}])
-    text = "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
-    stalls, notes = parse(text)
+    """One vision request through LangChain (the same Claude model as the Deep Agent).
+
+    Returns (suggestions, model's note on image quality, the AIMessage for usage tracking)."""
+    from langchain_core.messages import HumanMessage
+    msg = HumanMessage(content=[
+        {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(image).decode()}},
+        {"type": "text", "text": PROMPT}])
+    resp = await orchestrator.build_model().ainvoke([msg])
+    stalls, notes = parse(orchestrator._text(resp))
     return stalls, notes, resp

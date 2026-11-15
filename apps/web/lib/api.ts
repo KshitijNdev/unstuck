@@ -159,7 +159,7 @@ export const searchProperties = (q: string) =>
     `/api/properties/search?limit=12&q=${encodeURIComponent(q)}`,
   );
 
-export const getSources =() => request<{ sources: SourceStatus[]; engine_note: string }>("/api/sources/status");
+export const getSources =() => request<{ sources: SourceStatus[]; engine: string; model?: string; engine_note: string }>("/api/sources/status");
 export const getAudit = (id: string) => request<Audit>(`/api/audits/${id}`);
 export const createAudit = (body: unknown) =>
   request<{ audit_id: string }>("/api/audits", { method: "POST", body: JSON.stringify(body) });
@@ -191,6 +191,7 @@ export const CONFIDENCE: Record<string, string> = {
   FIELD_MEASURED: "Field measured",
   MANUAL_ENTRY: "Manually entered",
   MODEL_METRIC: "Measured in 3D tour",
+  SCAN_FLOORPLAN: "Doorway opening from the scan's floor plan (frame gap, not clear width)",
   PROPERTY_RECORD: "From property record",
   IMAGE_ESTIMATE_UNVERIFIED: "Unverified image estimate",
   VISUAL_UNVERIFIED: "Visual only, unverified",

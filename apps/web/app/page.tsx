@@ -3,6 +3,7 @@
 import { motion } from "motion/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { AgentExplainer } from "@/components/AgentExplainer";
 import { CAPTIONS, SitePlan } from "@/components/SitePlan";
 import { CoverageCards, ErrorNote } from "@/components/ui";
 import { createAudit, getSources, getUsage, searchProperties, type CostarHit, type SourceStatus, type UsageTotals } from "@/lib/api";
@@ -18,7 +19,7 @@ const STEPS = [
   },
   {
     title: "Measure inside",
-    body: "Open the Matterport tour at the entrance and measure the door with it open 90°. The minimum is 32 inches clear. A reading within half an inch of the line goes back for a tape measure instead of a verdict.",
+    body: "The agent reads every doorway opening from the Matterport floor plan. An opening under 32 inches is flagged, because the clear width can only be narrower. Then a person measures the clear width with the door open 90°: here 31 inches against a 32 inch minimum.",
   },
   {
     title: "Act on what was measured",
@@ -141,6 +142,8 @@ export default function Home() {
         </div>
       </section>
 
+      <AgentExplainer />
+
       <div className="border-t border-line bg-sheet">
         <div className="mx-auto max-w-6xl space-y-14 px-5 py-16">
           {error && <ErrorNote message={error} />}
@@ -256,7 +259,7 @@ export default function Home() {
                 </p>
               )}
             </div>
-            <div>
+            <div className="min-w-0">
               {sources ? <CoverageCards sources={sources} /> : !error && <p className="text-muted">Checking sources…</p>}
             </div>
           </section>

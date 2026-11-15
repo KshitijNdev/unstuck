@@ -19,6 +19,12 @@ const EVENT_TONE: Record<string, string> = {
   REVIEW_REQUESTED: "text-review", REPORT_READY: "text-sign",
 };
 
+// Scan doorways that only need measuring are folded away so the list stays readable; suspected ones stay on top.
+const folded = (f: Audit["findings"][number]) =>
+  f.location_id.startsWith("scan_door_") && f.review_status === "NOT_REVIEWED" &&
+  (f.status === "FIELD_VERIFICATION_REQUIRED" || f.status === "INSUFFICIENT_DATA") &&
+  (f.confidence === "SCAN_FLOORPLAN" || f.confidence === "NO_MEASUREMENT");
+
 const human = (s: string) => {
   const t = s.replaceAll("_", " ").toLowerCase();
   return t.charAt(0).toUpperCase() + t.slice(1);
@@ -150,11 +156,12 @@ export function AuditClient({ id }: { id: string }) {
         <div className="bg-sheet p-5">
           <h2 id="act-h" className="font-display text-[1.8rem] font-bold leading-none">Plan</h2>
           <p className="mt-2 text-[0.95rem] text-muted">
-            {!audit
-              ? "Loading the plan…"
-              : audit.engine === "claude_agent"
-                ? "A Claude agent wrote this plan and chose each tool call. Check results come from the rule engine, not the model."
-                : "Scripted pipeline: fixed steps, no AI model involved."}
+            {!audit ? "Loading the plan…"
+              : audit.engine === "deep_agent"
+              ? `A LangChain Deep Agent${audit.usage?.[0]?.model ? ` (${audit.usage[0].model})` : ""} wrote this plan and delegated the work to its property, exterior and interior subagents. Every check result comes from the tested rule engine, not the model.`
+              : audit.usage?.length
+              ? "The Deep Agent stopped partway, so a fixed scripted pipeline finished the audit. Every check result comes from the rule engine."
+              : "Scripted pipeline: fixed steps, no AI model involved. Every check result comes from the rule engine."}
           </p>
           <ol className="mt-4 space-y-2">
             <AnimatePresence initial={false}>
@@ -233,12 +240,30 @@ export function AuditClient({ id }: { id: string }) {
             <h2 id="find-h" className="font-display text-[2.2rem] font-bold leading-none">Checks</h2>
             <p className="mt-2 text-muted">Most urgent first. Each one compares a single measurement with one threshold.</p>
             <ul className="mt-5 space-y-4">
-              {audit.findings.map((f) => (
+              {audit.findings.filter((f) => !folded(f)).map((f) => (
                 <FindingCard key={f.id} finding={f} auditId={id} selected={f.id === selectedId}
                   onSelect={() => { setSelectedId(f.id); document.getElementById("ev-h")?.scrollIntoView({ block: "start" }); }}
                   onChanged={refresh} />
               ))}
             </ul>
+            {audit.findings.some(folded) && (
+              <details className="mt-4 sheet p-4">
+                <summary className="cursor-pointer font-semibold">
+                  {audit.findings.filter(folded).length} more doorways from the scan need a measurement
+                </summary>
+                <p className="mt-2 text-[0.95rem] text-muted">
+                  Their floor-plan openings are wide enough that the clear width could meet the minimum, or the scan&apos;s
+                  value is implausible. Nothing is passed from a scan: measure each one to screen it.
+                </p>
+                <ul className="mt-4 space-y-4">
+                  {audit.findings.filter(folded).map((f) => (
+                    <FindingCard key={f.id} finding={f} auditId={id} selected={f.id === selectedId}
+                      onSelect={() => { setSelectedId(f.id); document.getElementById("ev-h")?.scrollIntoView({ block: "start" }); }}
+                      onChanged={refresh} />
+                  ))}
+                </ul>
+              </details>
+            )}
           </section>
 
           <section aria-labelledby="cov-h">

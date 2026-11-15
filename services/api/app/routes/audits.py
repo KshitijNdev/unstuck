@@ -43,9 +43,11 @@ def get_usage():
 def get_sources_status():
     from ..agents import orchestrator
     if orchestrator.available():
-        return {"sources": sources_status(), "engine": "claude_agent",
-                "engine_note": f"A Claude agent ({orchestrator.model_name()}) plans each audit and chooses which sources to "
-                               "call. Every check result comes from the tested rule engine, not the model."}
+        return {"sources": sources_status(), "engine": "deep_agent", "model": orchestrator.model_name(),
+                "engine_note": f"A LangChain Deep Agent ({orchestrator.model_name()}) plans each audit and delegates to three "
+                               "subagents: property investigator, exterior inspector and interior inspector, which measures "
+                               "doorway openings in the Matterport floor plan. Every check result comes from the tested "
+                               "rule engine, not the model."}
     return {"sources": sources_status(), "engine": "scripted_pipeline",
             "engine_note": "Fixed scripted pipeline (no model key configured). Same checks, fixed order."}
 
@@ -105,10 +107,14 @@ def create_audit(body: CreateAudit, background: BackgroundTasks):
     else:
         raise HTTPException(400, "Provide the demo property_id or a custom_property.")
 
+    from ..agents import orchestrator
     audit = Audit(id=audit_id, property_id=prop.id, mode=body.mode, standard_profile=body.standard_profile,
-                  is_synthetic=synthetic, property=prop)
+                  is_synthetic=synthetic, property=prop,
+                  # set up front so the page never shows "scripted" for an agent audit while it is queued
+                  engine="deep_agent" if orchestrator.available() else "scripted_pipeline")
     store.save(audit)
-    background.add_task(runner.run_audit, audit_id, model_id)
+    # The agent is told about a scan only when the user picked it; the script falls back to the first linked scan.
+    background.add_task(runner.run_audit, audit_id, model_id, bool(body.matterport_model_id))
     return {"audit_id": audit_id, "status": "QUEUED", "status_url": f"/api/audits/{audit_id}"}
 
 
@@ -244,7 +250,7 @@ async def suggest_markups(audit_id: str):
     runner.emit(audit, "AGENT_NOTE", "vision_model",
                 f"Suggested {len(found)} possible accessible stall(s) on the {ev.provider} image. "
                 "Suggestions are not counted until a person accepts them.", tool="suggest_stalls", payload=found)
-    return {"suggestions": found, "notes": notes, "model": getattr(resp, "model", None)}
+    return {"suggestions": found, "notes": notes, "model": (resp.response_metadata or {}).get("model_name")}
 
 
 @router.post("/audits/{audit_id}/model")
@@ -263,6 +269,8 @@ async def choose_model(audit_id: str, body: ModelIn):
     audit.evidence = [e for e in audit.evidence if e.provider != "Matterport"] + [ev]
     runner.emit(audit, "FETCH_SUCCESS", "interior_inspector", f"Switched to Matterport scan {body.model_id} ({summary.get('name')}).",
                 tool="matterport.model_api", source_id=f"Matterport:{body.model_id}")
+    runner.step_doorways(audit)  # doorway checks follow the scan being shown
+    runner.reevaluate(audit)
     return ev
 
 

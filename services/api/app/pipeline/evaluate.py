@@ -5,19 +5,26 @@ here (and no LLM anywhere) changes a numeric outcome.
 """
 from __future__ import annotations
 
+import re
+
 from ..models import Audit, Finding, Measurement
 from ..rules import ada2010 as rules
 
 # Lower rank = weaker provenance. A check that mixes methods is labelled with the weakest.
-_RANK = {"synthetic_demo_only": 0, "image_estimate": 1, "model_metric": 2, "record": 2.5, "manual": 3, "field": 4}
+_RANK = {"synthetic_demo_only": 0, "image_estimate": 1, "scan_floorplan": 1.5, "model_metric": 2, "record": 2.5, "manual": 3, "field": 4}
 _CONFIDENCE = {
-    "synthetic_demo_only": "DEMO_SYNTHETIC", "image_estimate": "IMAGE_ESTIMATE_UNVERIFIED",
+    "synthetic_demo_only": "DEMO_SYNTHETIC", "image_estimate": "IMAGE_ESTIMATE_UNVERIFIED", "scan_floorplan": "SCAN_FLOORPLAN",
     "model_metric": "MODEL_METRIC", "record": "PROPERTY_RECORD", "manual": "MANUAL_ENTRY", "field": "FIELD_MEASURED", None: "NO_MEASUREMENT",
 }
 _LABEL = {
     rules.PASS: "measured", rules.FAIL: "measured", rules.SUSPECTED: "suspected",
     rules.FIELD: "review needed", rules.INSUFFICIENT: "review needed", rules.OUT_OF_SCOPE: "review needed",
 }
+
+
+def _natural(text: str) -> list:
+    """Sort key that puts 'doorway 2' before 'doorway 10'."""
+    return [(0, int(t), "") if t.isdigit() else (1, 0, t) for t in re.split(r"(\d+)", text)]
 
 
 def _latest(measurements: list[Measurement], location_id: str) -> dict[str, Measurement]:
@@ -86,13 +93,22 @@ def evaluate(audit: Audit) -> list[Finding]:
         findings += [_finding(audit, r, fac.id, fac.label, 1, o.method if o else method, located, previous)
                      for r, o in zip(results, observed_by)]
 
+    tour = [e.id for e in audit.evidence if e.asset_type == "tour"]
     for door in prop.doors:
         ms = _latest(audit.measurements, door.id)
         width, depth = ms.get("door_clear_width_in"), ms.get("door_opening_depth_in")
+        opening = ms.get("door_opening_width_in")
+        evidence = tour if door.source == "matterport_floorplan" else located
+        if width is None and opening is not None:
+            # Only the scan's frame opening is known: it can raise suspicion, never pass the door.
+            wall = ms.get("door_wall_thickness_in")
+            result = rules.screen_doorway_opening(opening.value, wall.value if wall else None)
+            findings.append(_finding(audit, result, door.id, door.label, door.priority, opening.method, evidence, previous))
+            continue
         method = _weakest([m for m in (width, depth) if m])
         result = rules.check_door(width.value if width else None, depth.value if depth else None,
                                   width.method if width else None, width.evidence_id if width else None)
-        findings.append(_finding(audit, result, door.id, door.label, door.priority, method, located, previous))
+        findings.append(_finding(audit, result, door.id, door.label, door.priority, method, evidence, previous))
 
     for obs in audit.observations:  # visual hypotheses: never numeric
         fid = f"{audit.id}__{obs['rule_id']}__{obs['location_id']}"
@@ -111,5 +127,5 @@ def evaluate(audit: Audit) -> list[Finding]:
         findings.append(f)
 
     order = {rules.FAIL: 0, rules.SUSPECTED: 1, rules.FIELD: 2, rules.INSUFFICIENT: 3, rules.OUT_OF_SCOPE: 4, rules.PASS: 5}
-    findings.sort(key=lambda f: (f.priority, order[f.status], f.location))
+    findings.sort(key=lambda f: (f.priority, order[f.status], _natural(f.location)))
     return findings

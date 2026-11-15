@@ -30,6 +30,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </Link>
             <nav aria-label="Main" className="flex items-center gap-5 text-[0.95rem]">
               <Link href="/#how" className="hidden font-medium hover:underline sm:inline">How it works</Link>
+              <Link href="/#agent" className="hidden font-medium hover:underline sm:inline">The agent</Link>
               <Link href="/#screen" className="btn btn-primary btn-sm">Screen a building</Link>
             </nav>
           </div>
